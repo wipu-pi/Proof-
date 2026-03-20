@@ -428,7 +428,7 @@ function ocrToText(){
   });
   const full=parts.join(" | ");
   // Limit to 4000 chars to stay within Gemini free tier token limits
-  return full.length>4000 ? full.slice(0,4000)+"..." : full;
+  return full.length>2000 ? full.slice(0,2000)+"..." : full;
 }
 
 async function runProof(){
@@ -472,7 +472,7 @@ async function runProof(){
 
     const res=await fetch("/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
     });
     if(!res.ok){const t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,200));}
     const data=await res.json();
@@ -583,20 +583,42 @@ function drawHL(hl,pn,cW,cH,fi){
 
 function findGVRects(words,s,cW,cH){
   s=s.trim(); if(!s||!words.length) return[];
-  const scX=cW/(words[0].imgW||1000);
-  const scY=cH/(words[0].imgH||1414);
-  const out=[];
-  function mk(w){return{x:w.x*scX,y:w.y*scY,w:Math.max(w.w*scX,8),h:Math.max(w.h*scY,8)};}
+  var imgW=words[0].imgW||1000;
+  var imgH=words[0].imgH||1414;
+  var scX=cW/imgW, scY=cH/imgH;
+  var out=[];
+  function mk(w){return{x:w.x*scX,y:w.y*scY,w:Math.max(w.w*scX,6),h:Math.max(w.h*scY,6)};}
+  // P1: exact match
   for(var i=0;i<words.length;i++){if(words[i].text===s){out.push(mk(words[i]));if(out.length>=5)return out;}}
   if(out.length) return out;
+  // P2: word contains search string
   for(var i=0;i<words.length;i++){if(words[i].text.includes(s)){out.push(mk(words[i]));if(out.length>=5)return out;}}
   if(out.length) return out;
-  for(var i=0;i<words.length;i++){if(words[i].text.trim().length>=2&&s.includes(words[i].text.trim())){out.push(mk(words[i]));if(out.length>=8)break;}}
-  if(out.length>1){
-    const mx=Math.min.apply(null,out.map(function(r){return r.x;}));
-    const my=Math.min.apply(null,out.map(function(r){return r.y;}));
-    const mr=Math.max.apply(null,out.map(function(r){return r.x+r.w;}));
-    const mb=Math.max.apply(null,out.map(function(r){return r.y+r.h;}));
+  // P3: multi-word match — only merge words on the SAME line (similar y)
+  var matches=[];
+  for(var i=0;i<words.length;i++){
+    var wt=words[i].text.trim();
+    if(wt.length>=2&&s.includes(wt)) matches.push(i);
+  }
+  if(matches.length>0&&matches.length<=8){
+    // Group by line: words within 60% of word height of each other
+    var groups=[];
+    matches.forEach(function(idx){
+      var w=words[idx];
+      var placed=false;
+      for(var g=0;g<groups.length;g++){
+        if(Math.abs(w.y-words[groups[g][0]].y)<w.h*0.7){groups[g].push(idx);placed=true;break;}
+      }
+      if(!placed) groups.push([idx]);
+    });
+    // Pick the largest group
+    groups.sort(function(a,b){return b.length-a.length;});
+    var rects=groups[0].map(function(idx){return mk(words[idx]);});
+    if(rects.length===1) return rects;
+    var mx=Math.min.apply(null,rects.map(function(r){return r.x;}));
+    var my=Math.min.apply(null,rects.map(function(r){return r.y;}));
+    var mr=Math.max.apply(null,rects.map(function(r){return r.x+r.w;}));
+    var mb=Math.max.apply(null,rects.map(function(r){return r.y+r.h;}));
     return [{x:mx,y:my,w:mr-mx,h:mb-my}];
   }
   return out;
@@ -685,7 +707,7 @@ async function runTxt(){
   try{
     const res=await fetch("/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
+      body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
     });
     const data=await res.json();
     if(data.error) throw new Error(data.error.message);
