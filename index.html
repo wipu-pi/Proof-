@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ProofTH</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#F2F0EB;--sur:#FFF;--sur2:#ECEAE4;
+  --bd:rgba(0,0,0,.07);--bd2:rgba(0,0,0,.13);
+  --tx:#18160F;--tx2:#5C5A52;--tx3:#9B9890;
+  --red:#B83232;--redbg:#FDF0EE;--redbd:rgba(184,50,50,.18);
+  --grn:#297A30;--grnbg:#EDF7EE;--grnbd:rgba(41,122,48,.18);
+  --amb:#8C5A0A;--ambbg:#FEF6E4;--ambbd:rgba(140,90,10,.18);
+  --blu:#1A4FBF;--blubg:#EEF3FF;--blubd:rgba(26,79,191,.18);
+  --r:10px;--rs:6px;
+}
+body{font-family:'IBM Plex Sans Thai',sans-serif;background:var(--bg);color:var(--tx);font-size:14px;line-height:1.6;height:100vh;overflow:hidden;display:grid;grid-template-columns:192px 1fr;grid-template-rows:48px 1fr}
+.topbar{grid-column:1/-1;background:var(--sur);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;gap:10px}
+.logo{font-size:14px;font-weight:600;letter-spacing:-.02em}
+.sp{flex:1}
+.sidebar{background:var(--sur);border-right:1px solid var(--bd);padding:8px;display:flex;flex-direction:column;gap:2px}
+.sec{font-size:10px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.07em;padding:10px 9px 4px}
+.ni{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:var(--rs);cursor:pointer;font-size:12px;color:var(--tx2);transition:.12s;user-select:none}
+.ni:hover{background:var(--sur2);color:var(--tx)}
+.ni.on{background:var(--tx);color:#fff}
+.main{overflow:hidden;display:flex;flex-direction:column}
+.page{display:none;flex:1;overflow:hidden;flex-direction:column}
+.page.on{display:flex}
+.scroll{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--sur);border:1px solid var(--bd);border-radius:var(--r)}
+.ch{padding:11px 14px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.ct{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--tx2)}
+.cb{padding:13px 14px}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:var(--rs);border:1px solid var(--bd2);background:var(--sur);color:var(--tx);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:.12s;white-space:nowrap;line-height:1}
+.btn:hover{background:var(--sur2)}
+.btn:disabled{opacity:.32;cursor:not-allowed}
+.btn-p{background:var(--tx);color:#fff;border-color:var(--tx)}
+.btn-p:hover:not(:disabled){opacity:.82}
+.btn-sm{padding:3px 8px;font-size:11px}
+.drop{border:1.5px dashed var(--bd2);border-radius:var(--r);padding:28px 20px;text-align:center;cursor:pointer;transition:.15s;background:var(--bg)}
+.drop:hover,.drop.drag{border-color:var(--tx);background:var(--sur2)}
+.fbar{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--blubg);border-radius:var(--rs);border:1px solid var(--blubd);margin-top:10px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:99px;border:1px solid var(--bd2);background:var(--sur);cursor:pointer;font-size:12px;font-weight:500;transition:.12s;user-select:none}
+.chip input{display:none}
+.chip.on{background:var(--tx);color:#fff;border-color:var(--tx)}
+.sbar{font-size:12px;padding:7px 11px;border-radius:var(--rs);margin-top:8px;border:1px solid transparent}
+.si{background:var(--blubg);color:var(--blu);border-color:var(--blubd)}
+.sok{background:var(--grnbg);color:var(--grn);border-color:var(--grnbd)}
+.se{background:var(--redbg);color:var(--red);border-color:var(--redbd)}
+.ocr-wrap{display:none;margin-top:10px}
+.ocr-track{background:var(--sur2);border-radius:99px;height:5px;overflow:hidden;margin-top:5px}
+.ocr-fill{height:100%;background:var(--blu);border-radius:99px;width:0;transition:width .3s}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:ro .7s linear infinite;vertical-align:middle}
+.spin-d{border-color:rgba(0,0,0,.1);border-top-color:var(--tx)}
+@keyframes ro{to{transform:rotate(360deg)}}
+.stats{display:flex;gap:6px}
+.sc{flex:1;background:var(--sur2);border-radius:var(--rs);padding:8px;text-align:center;border:1px solid var(--bd)}
+.sn{font-size:17px;font-weight:600}
+.sl{font-size:10px;color:var(--tx3);margin-top:1px;text-transform:uppercase;letter-spacing:.03em}
+.ptop{padding:7px 12px;background:var(--sur);border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:9px;flex-shrink:0;flex-wrap:wrap}
+.pwrap{flex:1;display:flex;overflow:hidden;min-height:0}
+.viewer{flex:1;background:#B8B4AA;overflow:auto;display:flex;flex-direction:column;align-items:center;padding:16px;gap:16px}
+.pcanv{position:relative;line-height:0;box-shadow:0 3px 16px rgba(0,0,0,.3);border-radius:2px}
+.pcanv canvas{display:block}
+.hll{position:absolute;top:0;left:0;pointer-events:none}
+.ipanel{width:276px;min-width:250px;background:var(--sur);border-left:1px solid var(--bd);display:flex;flex-direction:column;overflow:hidden}
+.iph{padding:9px 12px;border-bottom:1px solid var(--bd);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.ipb{flex:1;overflow-y:auto;padding:4px}
+.ii{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:var(--rs);cursor:pointer;border:1px solid transparent;margin-bottom:1px;transition:.1s}
+.ii:hover{background:var(--sur2)}
+.ii.on{background:var(--blubg);border-color:var(--blubd)}
+.ii.dim{opacity:.22}
+.ibg{font-size:10px;font-weight:600;padding:2px 5px;border-radius:99px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+.bsp{background:var(--redbg);color:var(--red)}
+.bpu{background:var(--ambbg);color:var(--amb)}
+.bbr{background:var(--blubg);color:var(--blu)}
+.bfo{background:#F5E0E0;color:#7A0A0A}
+.i-orig{font-size:12px;font-weight:500}
+.i-fix{font-size:11px;color:var(--grn);margin-top:1px}
+.i-exp{font-size:11px;color:var(--tx3);margin-top:1px}
+.pgp{font-size:10px;background:var(--sur2);color:var(--tx3);padding:1px 5px;border-radius:99px;flex-shrink:0;margin-left:auto;align-self:flex-start;white-space:nowrap}
+.csec{border-top:1px solid var(--bd);padding:9px 12px;flex-shrink:0}
+.clbl{font-size:10px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;display:flex;justify-content:space-between}
+.ctext{font-size:12px;line-height:1.8;color:var(--tx);max-height:100px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.ins{background:var(--grnbg);color:var(--grn);border-radius:2px;padding:0 2px;font-weight:500}
+.pnav{display:flex;align-items:center;gap:4px}
+.pnav button{padding:2px 9px;font-size:12px;border-radius:var(--rs);border:1px solid var(--bd2);background:var(--sur);cursor:pointer;font-family:inherit;transition:.1s;line-height:1.5}
+.pnav button:hover:not(:disabled){background:var(--sur2)}
+.pnav button:disabled{opacity:.28;cursor:not-allowed}
+.leg{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ld{display:flex;align-items:center;gap:3px;font-size:11px;color:var(--tx2)}
+.ldc{width:8px;height:8px;border-radius:2px}
+.dg{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dp{background:var(--bg);border-radius:var(--rs);padding:10px;font-size:13px;line-height:1.85;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto;border:1px solid var(--bd)}
+.dl{font-size:10px;font-weight:600;color:var(--tx3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.del{background:var(--redbg);color:var(--red);border-radius:2px;padding:0 2px;text-decoration:line-through}
+.ffo{background:var(--redbg);color:var(--red);border-radius:2px;padding:0 2px;border-bottom:2px solid var(--red)}
+.fbr{background:var(--blubg);color:var(--blu);border-radius:2px;padding:0 2px;border-bottom:2px solid var(--blu)}
+.wt{display:flex;gap:3px;margin-bottom:10px}
+.wtb{padding:4px 11px;border-radius:var(--rs);border:1px solid var(--bd2);background:var(--sur);font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;color:var(--tx2);transition:.12s}
+.wtb.on{background:var(--tx);color:#fff;border-color:var(--tx)}
+.ws{display:none}.ws.on{display:block}
+.war{display:flex;gap:6px;margin-bottom:8px}
+.war input{flex:1;padding:6px 9px;border:1px solid var(--bd2);border-radius:var(--rs);font-family:inherit;font-size:13px;background:var(--bg);color:var(--tx);outline:none}
+.war input:focus{border-color:var(--tx)}
+.wcs{display:flex;flex-wrap:wrap;gap:4px;min-height:26px}
+.wc{display:flex;align-items:center;gap:3px;padding:3px 8px;border-radius:99px;font-size:12px}
+.wcbr{background:var(--blubg);color:var(--blu);border:1px solid var(--blubd)}
+.wcap{background:var(--grnbg);color:var(--grn);border:1px solid var(--grnbd)}
+.wcfo{background:var(--redbg);color:var(--red);border:1px solid var(--redbd)}
+.wcd{width:13px;height:13px;border-radius:50%;background:rgba(0,0,0,.15);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;flex-shrink:0}
+.wcd:hover{background:var(--red)}
+.lbl{font-size:11px;color:var(--tx3);margin-bottom:5px}
+.es{color:var(--tx3);font-size:13px;text-align:center;padding:20px}
+input[type=file]{display:none}
+textarea{width:100%;min-height:110px;padding:9px 11px;border:1px solid var(--bd2);border-radius:var(--rs);font-family:inherit;font-size:14px;line-height:1.8;resize:vertical;background:var(--bg);color:var(--tx);outline:none}
+textarea:focus{border-color:var(--tx)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">ProofTH</span>
+  <span style="font-size:11px;color:var(--tx3)">Google Vision + Gemini</span>
+  <div class="sp"></div>
+  <div id="db-pills" style="display:flex;gap:5px;align-items:center"></div>
+</div>
+
+<div class="sidebar">
+  <div class="sec">เมนู</div>
+  <div class="ni on" id="ni-pdf" onclick="showPg('pdf')">📄 ตรวจ PDF</div>
+  <div class="ni" id="ni-txt" onclick="showPg('txt')">✏️ ตรวจข้อความ</div>
+  <div class="sec" style="margin-top:4px">ตั้งค่า</div>
+  <div class="ni" id="ni-db" onclick="showPg('db')">📚 คลังคำ</div>
+</div>
+
+<div class="main">
+
+  <!-- PDF PAGE -->
+  <div class="page on" id="pg-pdf">
+    <div class="scroll" id="uv">
+      <div class="card">
+        <div class="ch"><span class="ct">อัพโหลด PDF</span></div>
+        <div class="cb">
+          <div class="drop" id="dz"
+            onclick="document.getElementById('fi').click()"
+            ondragover="event.preventDefault();this.classList.add('drag')"
+            ondragleave="this.classList.remove('drag')"
+            ondrop="onDrop(event)">
+            <div style="font-size:24px;opacity:.3;margin-bottom:8px">📑</div>
+            <div style="font-size:13px;font-weight:500;margin-bottom:3px">คลิกหรือลากไฟล์ PDF มาวาง</div>
+            <div style="font-size:11px;color:var(--tx3)">รองรับ PDF ทุกประเภท · Google Vision อ่านได้ทุกฟอนต์</div>
+          </div>
+          <input type="file" id="fi" accept=".pdf" onchange="onFile(event)">
+          <div id="fb"></div>
+          <div id="ust"></div>
+          <div class="ocr-wrap" id="ocr-wrap">
+            <div id="ocr-lbl" style="font-size:11px;color:var(--blu)">กำลังรัน Google Vision OCR...</div>
+            <div class="ocr-track"><div class="ocr-fill" id="ocr-fill"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="ct">ตัวเลือก</span></div>
+        <div class="cb" style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <div class="lbl">ประเภทการตรวจ</div>
+            <div class="chips">
+              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cs" checked><span>สะกดคำ</span></label>
+              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cp" checked><span>วรรคตอน</span></label>
+              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cb2" checked><span>คำแบรนด์</span></label>
+              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cf" checked><span>คำต้องห้าม</span></label>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
+            <span id="gm" style="font-size:11px;color:var(--tx3)"></span>
+            <button class="btn btn-p" id="bg" onclick="runProof()" disabled>
+              <span class="spin" id="sg" style="display:none"></span>ตรวจสอบ PDF
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pv" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div class="ptop">
+        <button class="btn btn-sm" onclick="resetPdf()">← ใหม่</button>
+        <div class="pnav">
+          <button id="bprv" onclick="goPage(curP-1)" disabled>‹</button>
+          <span style="font-size:12px;color:var(--tx2)" id="pgi">1/1</span>
+          <button id="bnxt" onclick="goPage(curP+1)" disabled>›</button>
+        </div>
+        <div class="leg">
+          <div class="ld"><div class="ldc" style="background:#D93030"></div>สะกด</div>
+          <div class="ld"><div class="ldc" style="background:#D07000"></div>วรรคตอน</div>
+          <div class="ld"><div class="ldc" style="background:#1A55E0"></div>แบรนด์</div>
+          <div class="ld"><div class="ldc" style="background:#A00020"></div>ต้องห้าม</div>
+        </div>
+        <div class="sp"></div>
+        <div class="stats" id="pst" style="max-width:280px"></div>
+        <button class="btn btn-sm" onclick="copyCorr()">📋 คัดลอก</button>
+      </div>
+      <div class="pwrap">
+        <div class="viewer" id="viewer"></div>
+        <div class="ipanel">
+          <div class="iph">
+            <span class="ct">ข้อผิดพลาด</span>
+            <span id="icnt" style="font-size:11px;background:var(--sur2);padding:1px 7px;border-radius:99px;color:var(--tx2)"></span>
+          </div>
+          <div class="ipb" id="ibody"></div>
+          <div class="csec">
+            <div class="clbl">
+              <span>ข้อความที่แก้ไขแล้ว</span>
+              <button class="btn btn-sm" onclick="copyCorr()">คัดลอก</button>
+            </div>
+            <div class="ctext" id="ctext">(ยังไม่มีข้อมูล)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEXT PAGE -->
+  <div class="page" id="pg-txt">
+    <div class="scroll">
+      <div class="card">
+        <div class="ch"><span class="ct">ป้อนข้อความ</span></div>
+        <div class="cb">
+          <textarea id="ta" placeholder="พิมพ์หรือวางข้อความภาษาไทย..." oninput="document.getElementById('tac').textContent=this.value.length+' ตัวอักษร'"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px">
+            <span id="tac" style="font-size:11px;color:var(--tx3)">0 ตัวอักษร</span>
+            <div style="display:flex;gap:7px">
+              <button class="btn" onclick="document.getElementById('ta').value='';document.getElementById('tac').textContent='0 ตัวอักษร'">ล้าง</button>
+              <button class="btn btn-p" id="btxt" onclick="runTxt()">ตรวจสอบ</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="tres" style="display:none;flex-direction:column;gap:10px">
+        <div class="stats" id="tst"></div>
+        <div class="card">
+          <div class="ch"><span class="ct">เปรียบเทียบ</span><button class="btn btn-sm" onclick="copyTxt()">📋 คัดลอก</button></div>
+          <div class="cb">
+            <div class="dg">
+              <div><div class="dl">ต้นฉบับ</div><div class="dp" id="dor"></div></div>
+              <div><div class="dl">หลังแก้ไข</div><div class="dp" id="dco"></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="ch"><span class="ct">รายการ</span><span id="tic" style="font-size:11px;background:var(--sur2);padding:1px 7px;border-radius:99px;color:var(--tx2)"></span></div>
+          <div style="padding:5px" id="til"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DB PAGE -->
+  <div class="page" id="pg-db">
+    <div class="scroll">
+      <div class="card">
+        <div class="ch"><span class="ct">คลังคำ</span></div>
+        <div class="cb">
+          <div class="wt">
+            <button class="wtb on" onclick="swTab('brand',this)">แบรนด์</button>
+            <button class="wtb" onclick="swTab('approved',this)">พจนานุกรม</button>
+            <button class="wtb" onclick="swTab('forbidden',this)">ต้องห้าม</button>
+          </div>
+          <div class="ws on" id="ws-brand">
+            <div class="lbl">คำเฉพาะแบรนด์ — ต้องสะกดตรงเป๊ะ</div>
+            <div class="war"><input id="wi-brand" placeholder="เช่น ไทยพาณิชย์" onkeydown="if(event.key==='Enter')addW('brand')"><button class="btn btn-p btn-sm" onclick="addW('brand')">+ เพิ่ม</button></div>
+            <div class="wcs" id="wc-brand"></div>
+          </div>
+          <div class="ws" id="ws-approved">
+            <div class="lbl">คำอนุมัติ — AI จะข้ามไม่ตรวจ</div>
+            <div class="war"><input id="wi-approved" placeholder="เช่น ทรานสฟอร์เมชั่น" onkeydown="if(event.key==='Enter')addW('approved')"><button class="btn btn-p btn-sm" onclick="addW('approved')">+ เพิ่ม</button></div>
+            <div class="wcs" id="wc-approved"></div>
+          </div>
+          <div class="ws" id="ws-forbidden">
+            <div class="lbl">คำต้องห้าม — ไฮไลต์แดงทุกครั้ง</div>
+            <div class="war"><input id="wi-forbidden" placeholder="เช่น ราคาถูก" onkeydown="if(event.key==='Enter')addW('forbidden')"><button class="btn btn-p btn-sm" onclick="addW('forbidden')">+ เพิ่ม</button></div>
+            <div class="wcs" id="wc-forbidden"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="ch"><span class="ct">สรุป</span></div>
+        <div class="cb">
+          <div class="stats">
+            <div class="sc"><div class="sn" id="cnt-br" style="color:var(--blu)">0</div><div class="sl">แบรนด์</div></div>
+            <div class="sc"><div class="sn" id="cnt-ap" style="color:var(--grn)">0</div><div class="sl">พจนานุกรม</div></div>
+            <div class="sc"><div class="sn" id="cnt-fo" style="color:var(--red)">0</div><div class="sl">ต้องห้าม</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+
+const DB = {brand:[], approved:[], forbidden:[]};
+let pdfDoc=null, pdfBytes=null;
+let issues=[], corrText="", lastTxt="";
+let curP=1, totP=0, focIdx=-1;
+let pageWords={};
+
+function showPg(id){
+  document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
+  document.querySelectorAll(".ni").forEach(n=>n.classList.remove("on"));
+  document.getElementById("pg-"+id).classList.add("on");
+  document.getElementById("ni-"+id).classList.add("on");
+}
+function tc(el){el.classList.toggle("on");el.querySelector("input").checked=el.classList.contains("on")}
+
+function onDrop(e){
+  e.preventDefault();
+  document.getElementById("dz").classList.remove("drag");
+  const f=e.dataTransfer.files[0]; if(f) loadPdf(f);
+}
+function onFile(e){const f=e.target.files[0];if(f)loadPdf(f);e.target.value="";}
+
+async function loadPdf(file){
+  if(!file.name.toLowerCase().endsWith(".pdf")){setSt("e","กรุณาอัพโหลดไฟล์ PDF เท่านั้น");return;}
+  setSt("i","กำลังโหลด...");
+  document.getElementById("bg").disabled=true;
+  try{
+    const ab=await file.arrayBuffer();
+    pdfBytes=new Uint8Array(ab);
+    pdfDoc=await pdfjsLib.getDocument({data:pdfBytes}).promise;
+    totP=pdfDoc.numPages;
+    document.getElementById("dz").style.display="none";
+    document.getElementById("fb").innerHTML=
+      '<div class="fbar"><span style="font-size:16px">📄</span>'+
+      '<div style="flex:1"><div style="font-size:12px;font-weight:500;color:var(--blu)">'+esc(file.name)+'</div>'+
+      '<div style="font-size:11px;color:var(--tx3);margin-top:1px">'+totP+' หน้า · '+(file.size/1024).toFixed(0)+' KB</div></div>'+
+      '<button class="btn btn-sm" onclick="resetPdf()">เปลี่ยน</button></div>';
+    document.getElementById("bg").disabled=false;
+    setSt("ok","โหลดสำเร็จ — "+totP+" หน้า ✓");
+  }catch(err){setSt("e","โหลดไม่สำเร็จ: "+err.message);pdfDoc=null;pdfBytes=null;}
+}
+
+function resetPdf(){
+  pdfDoc=null;pdfBytes=null;issues=[];corrText="";pageWords={};curP=1;totP=0;focIdx=-1;
+  document.getElementById("dz").style.display="block";
+  document.getElementById("fb").innerHTML="";
+  document.getElementById("bg").disabled=true;
+  document.getElementById("ocr-wrap").style.display="none";
+  setSt("","");
+  document.getElementById("uv").style.display="flex";
+  document.getElementById("pv").style.display="none";
+}
+
+function setSt(t,m){
+  const el=document.getElementById("ust");
+  if(!t){el.innerHTML="";return;}
+  el.innerHTML='<div class="sbar s'+t+'">'+esc(m)+'</div>';
+}
+function setGo(m){document.getElementById("gm").textContent=m;}
+function setOcr(lbl,pct){
+  document.getElementById("ocr-wrap").style.display="block";
+  document.getElementById("ocr-lbl").textContent=lbl;
+  document.getElementById("ocr-fill").style.width=pct+"%";
+}
+
+async function pageToImg(n){
+  const page=await pdfDoc.getPage(n);
+  const vp=page.getViewport({scale:2});
+  const cv=document.createElement("canvas");
+  cv.width=vp.width; cv.height=vp.height;
+  await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+  return cv.toDataURL("image/jpeg",0.92).split(",")[1];
+}
+
+async function runVisionOCR(){
+  pageWords={};
+  for(let p=1;p<=totP;p++){
+    setOcr("Google Vision OCR หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
+    const imgB64=await pageToImg(p);
+    const res=await fetch("/api/vision",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"DOCUMENT_TEXT_DETECTION"}]}]})
+    });
+    if(!res.ok) throw new Error("Vision API "+res.status);
+    const data=await res.json();
+    if(data.error) throw new Error("Vision: "+data.error.message);
+    const words=[];
+    const pages=(data.responses[0]||{}).fullTextAnnotation
+      ? data.responses[0].fullTextAnnotation.pages : [];
+    for(const pg of pages){
+      for(const block of(pg.blocks||[])){
+        for(const para of(block.paragraphs||[])){
+          for(const word of(para.words||[])){
+            const text=(word.symbols||[]).map(function(s){return s.text;}).join("");
+            if(!text.trim()) continue;
+            const verts=(word.boundingBox||{}).vertices||[];
+            if(verts.length<4) continue;
+            const xs=verts.map(function(v){return v.x||0;});
+            const ys=verts.map(function(v){return v.y||0;});
+            words.push({
+              text:text,
+              x:Math.min.apply(null,xs), y:Math.min.apply(null,ys),
+              w:Math.max.apply(null,xs)-Math.min.apply(null,xs),
+              h:Math.max.apply(null,ys)-Math.min.apply(null,ys),
+              imgW:pg.width||1000, imgH:pg.height||1414
+            });
+          }
+        }
+      }
+    }
+    pageWords[p]=words;
+    setOcr("Google Vision OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
+  }
+}
+
+function ocrToText(){
+  const parts=[];
+  Object.keys(pageWords).forEach(function(p){
+    const words=pageWords[p];
+    parts.push("[Page "+p+"] "+words.map(function(w){return w.text;}).join(" "));
+  });
+  return parts.join(" | ");
+}
+
+async function runProof(){
+  if(!pdfDoc){setGo("กรุณาอัพโหลด PDF ก่อน");return;}
+  const btn=document.getElementById("bg"), sp=document.getElementById("sg");
+  btn.disabled=true; sp.style.display="inline-block";
+  try{
+    setGo("กำลังรัน Google Vision OCR...");
+    await runVisionOCR();
+    document.getElementById("ocr-wrap").style.display="none";
+
+    const ocrText=ocrToText();
+    setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
+
+    const checks=[];
+    if(document.getElementById("cs").checked) checks.push("การสะกดคำและคำผิด");
+    if(document.getElementById("cp").checked) checks.push("เครื่องหมายวรรคตอน");
+    if(document.getElementById("cb2").checked&&DB.brand.length) checks.push("คำเฉพาะแบรนด์");
+    if(document.getElementById("cf").checked&&DB.forbidden.length) checks.push("คำต้องห้าม");
+
+    const promptLines=[
+      "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ",
+      "",
+      "นี่คือข้อความที่สกัดจาก PDF ด้วย Google Vision OCR:",
+      "",
+      ocrText,
+      "",
+      "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
+      "",
+      "คลังคำ:",
+      "- แบรนด์ (สะกดต้องตรงเป๊ะ): "+(DB.brand.join(", ")||"ไม่มี"),
+      "- อนุมัติ (ข้ามไม่ต้องแก้): "+(DB.approved.join(", ")||"ไม่มี"),
+      "- ต้องห้าม (รายงานทุกครั้ง): "+(DB.forbidden.join(", ")||"ไม่มี"),
+      "",
+      'ตอบ JSON เท่านั้น ห้าม markdown: {"corrected":"ข้อความสั้นที่แก้แล้ว","issues":[{"type":"spelling","original":"คำผิดตรงตาม OCR","corrected":"คำถูก","explanation":"อธิบาย","page":1}],"summary":"สรุป"}',
+      "type: spelling / punctuation / brand / forbidden",
+      "original ต้องตรงกับข้อความใน OCR ทุกตัวอักษร",
+      "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
+    ];
+    const prompt=promptLines.join("\n");
+
+    const res=await fetch("/api/gemini",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8192}})
+    });
+    if(!res.ok){const t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,200));}
+    const data=await res.json();
+    if(data.error) throw new Error("Gemini: "+data.error.message);
+    const raw=(data.candidates||[]).map(function(cd){
+      return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");
+    }).join("");
+    const result=parseJ(raw);
+    issues=Array.isArray(result.issues)?result.issues:[];
+    corrText=result.corrected||"";
+
+    document.getElementById("uv").style.display="none";
+    const pv=document.getElementById("pv");
+    pv.style.display="flex"; pv.style.flexDirection="column";
+    curP=1; focIdx=-1;
+    await renderPage(curP);
+    renderStats(); renderIssues();
+  }catch(err){
+    setGo("❌ "+err.message);
+    console.error(err);
+    document.getElementById("ocr-wrap").style.display="none";
+  }
+  btn.disabled=false; sp.style.display="none"; setGo("");
+}
+
+function parseJ(raw){
+  var s=raw.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
+  try{return JSON.parse(s);}catch(e){}
+  var m=s.match(/\{[\s\S]*\}/);
+  if(m){try{return JSON.parse(m[0]);}catch(e){}}
+  var iss=[];
+  var chunks=s.split('"type"');
+  for(var ci=1;ci<chunks.length;ci++){
+    try{
+      var ch=chunks[ci];
+      var tM=ch.match(/:\s*"([^"]+)"/);
+      var oM=ch.match(/"original"\s*:\s*"([^"]*)"/);
+      var cM=ch.match(/"corrected"\s*:\s*"([^"]*)"/);
+      var eM=ch.match(/"explanation"\s*:\s*"([^"]*)"/);
+      var pM=ch.match(/"page"\s*:\s*(\d+)/);
+      if(tM&&oM) iss.push({type:tM[1],original:oM[1],corrected:cM?cM[1]:"",explanation:eM?eM[1]:"",page:pM?+pM[1]:1});
+    }catch(e){}
+  }
+  var c2=s.match(/"corrected"\s*:\s*"([^"]*)"/);
+  return{corrected:c2?c2[1]:"",issues:iss,summary:"ผลบางส่วน"};
+}
+
+async function renderPage(n){
+  const viewer=document.getElementById("viewer");
+  viewer.innerHTML='<div style="color:#999;font-size:12px;display:flex;align-items:center;gap:8px;margin:auto">'+
+    '<span class="spin spin-d" style="width:16px;height:16px;border-width:2px"></span>กำลังแสดงหน้า '+n+'...</div>';
+  const page=await pdfDoc.getPage(n);
+  const sc=calcSc(page,viewer);
+  const vp=page.getViewport({scale:sc});
+  viewer.innerHTML="";
+  const wrap=document.createElement("div");
+  wrap.className="pcanv"; wrap.style.width=vp.width+"px"; wrap.style.height=vp.height+"px";
+  const cv=document.createElement("canvas"); cv.width=vp.width; cv.height=vp.height;
+  const hl=document.createElement("canvas"); hl.className="hll"; hl.width=vp.width; hl.height=vp.height;
+  wrap.appendChild(cv); wrap.appendChild(hl); viewer.appendChild(wrap);
+  await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
+  drawHL(hl,n,vp.width,vp.height,focIdx);
+  document.getElementById("pgi").textContent=n+" / "+totP;
+  document.getElementById("bprv").disabled=(n<=1);
+  document.getElementById("bnxt").disabled=(n>=totP);
+}
+
+function calcSc(page,viewer){
+  const v=page.getViewport({scale:1});
+  return Math.min(
+    Math.max(viewer.clientWidth-32,200)/v.width,
+    Math.max(viewer.clientHeight-32,200)/v.height,
+    2.5);
+}
+
+async function goPage(n){
+  if(n<1||n>totP) return;
+  curP=n; focIdx=-1;
+  await renderPage(curP);
+  dimOther(curP);
+}
+
+const HL={
+  spelling:   {f:"rgba(217,48,48,.26)",  s:"#AA0000",ff:"rgba(217,48,48,.52)"},
+  punctuation:{f:"rgba(208,112,0,.24)",  s:"#996600",ff:"rgba(208,112,0,.50)"},
+  brand:      {f:"rgba(26,85,224,.22)",  s:"#0033BB",ff:"rgba(26,85,224,.48)"},
+  forbidden:  {f:"rgba(160,0,32,.24)",   s:"#770011",ff:"rgba(160,0,32,.50)"}
+};
+
+function drawHL(hl,pn,cW,cH,fi){
+  const ctx=hl.getContext("2d");
+  ctx.clearRect(0,0,hl.width,hl.height);
+  const words=pageWords[pn]||[];
+  issues.forEach(function(iss,i){
+    if(!iss.original||(iss.page||1)!==pn) return;
+    const col=HL[iss.type]||HL.spelling, foc=(i===fi);
+    findGVRects(words,iss.original,cW,cH).forEach(function(r){
+      ctx.save();
+      ctx.fillStyle=foc?col.ff:col.f;
+      ctx.strokeStyle=col.s; ctx.lineWidth=foc?2.5:1.2;
+      ctx.beginPath(); ctx.roundRect(r.x,r.y,r.w,r.h,3);
+      ctx.fill(); ctx.stroke();
+      if(foc){ctx.globalAlpha=.2;ctx.lineWidth=1;ctx.strokeRect(r.x-5,r.y-5,r.w+10,r.h+10);}
+      ctx.restore();
+    });
+  });
+}
+
+function findGVRects(words,s,cW,cH){
+  s=s.trim(); if(!s||!words.length) return[];
+  const scX=cW/(words[0].imgW||1000);
+  const scY=cH/(words[0].imgH||1414);
+  const out=[];
+  function mk(w){return{x:w.x*scX,y:w.y*scY,w:Math.max(w.w*scX,8),h:Math.max(w.h*scY,8)};}
+  for(var i=0;i<words.length;i++){if(words[i].text===s){out.push(mk(words[i]));if(out.length>=5)return out;}}
+  if(out.length) return out;
+  for(var i=0;i<words.length;i++){if(words[i].text.includes(s)){out.push(mk(words[i]));if(out.length>=5)return out;}}
+  if(out.length) return out;
+  for(var i=0;i<words.length;i++){if(words[i].text.trim().length>=2&&s.includes(words[i].text.trim())){out.push(mk(words[i]));if(out.length>=8)break;}}
+  if(out.length>1){
+    const mx=Math.min.apply(null,out.map(function(r){return r.x;}));
+    const my=Math.min.apply(null,out.map(function(r){return r.y;}));
+    const mr=Math.max.apply(null,out.map(function(r){return r.x+r.w;}));
+    const mb=Math.max.apply(null,out.map(function(r){return r.y+r.h;}));
+    return [{x:mx,y:my,w:mr-mx,h:mb-my}];
+  }
+  return out;
+}
+
+function renderIssues(){
+  const body=document.getElementById("ibody");
+  document.getElementById("icnt").textContent=issues.length+" รายการ";
+  if(!issues.length){body.innerHTML='<div class="es">✓ ไม่พบข้อผิดพลาด</div>';renderCorr();return;}
+  const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
+  body.innerHTML=issues.map(function(iss,i){
+    const bc=(bm[iss.type]||["bsp",iss.type])[0];
+    const bl=(bm[iss.type]||["bsp",iss.type])[1];
+    const fix=iss.type==="forbidden"?'<div class="i-fix" style="color:var(--red)">⚠ ต้องห้าม</div>':
+      '<div class="i-fix">→ '+esc(iss.corrected||"")+"</div>";
+    const pg=iss.page?'<span class="pgp">หน้า '+iss.page+'</span>':"";
+    return'<div class="ii" id="ii-'+i+'" onclick="focIssue('+i+')">'+
+      '<span class="ibg '+bc+'">'+bl+'</span>'+
+      '<div style="flex:1;min-width:0"><div class="i-orig">'+esc(iss.original||"")+"</div>"+
+      fix+'<div class="i-exp">'+esc(iss.explanation||"")+"</div></div>"+pg+"</div>";
+  }).join("");
+  renderCorr();
+}
+
+function renderCorr(){
+  const el=document.getElementById("ctext");
+  if(!corrText){el.textContent="(ไม่มีข้อมูล)";return;}
+  let html=esc(corrText);
+  issues.forEach(function(iss){
+    if(!iss.original||!iss.corrected||iss.type==="forbidden") return;
+    html=html.replace(new RegExp(reEsc(esc(iss.corrected)),"g"),'<span class="ins">'+esc(iss.corrected)+"</span>");
+  });
+  el.innerHTML=html;
+}
+
+async function focIssue(idx){
+  focIdx=idx;
+  document.querySelectorAll(".ii").forEach(function(el,i){
+    el.classList.toggle("on",i===idx); el.classList.remove("dim");
+  });
+  const el=document.getElementById("ii-"+idx);
+  if(el) el.scrollIntoView({block:"nearest",behavior:"smooth"});
+  const iss=issues[idx]; if(!iss) return;
+  const tgt=iss.page||1;
+  if(tgt!==curP){curP=tgt; await renderPage(curP);}
+  else{const hl=document.querySelector(".hll");if(hl)drawHL(hl,curP,hl.width,hl.height,idx);}
+  dimOther(curP);
+}
+
+function dimOther(page){
+  document.querySelectorAll(".ii").forEach(function(el,i){
+    el.classList.toggle("dim",((issues[i]||{}).page||1)!==page);
+  });
+}
+
+function renderStats(){
+  function t(type){return issues.filter(function(i){return i.type===type;}).length;}
+  document.getElementById("pst").innerHTML=
+    '<div class="sc"><div class="sn" style="color:var(--red)">'+t("spelling")+'</div><div class="sl">สะกด</div></div>'+
+    '<div class="sc"><div class="sn" style="color:var(--amb)">'+t("punctuation")+'</div><div class="sl">วรรค</div></div>'+
+    '<div class="sc"><div class="sn" style="color:var(--blu)">'+t("brand")+'</div><div class="sl">แบรนด์</div></div>'+
+    '<div class="sc"><div class="sn" style="color:#A00020">'+t("forbidden")+'</div><div class="sl">ต้องห้าม</div></div>'+
+    '<div class="sc"><div class="sn">'+issues.length+'</div><div class="sl">รวม</div></div>';
+}
+
+function copyCorr(){
+  if(!corrText) return;
+  navigator.clipboard.writeText(corrText).catch(function(){prompt("คัดลอก:",corrText);});
+}
+
+async function runTxt(){
+  const text=document.getElementById("ta").value.trim(); if(!text) return;
+  const btn=document.getElementById("btxt");
+  btn.disabled=true; btn.innerHTML='<span class="spin spin-d"></span> กำลังตรวจ...';
+  const checks=[];
+  if(document.getElementById("cs").checked) checks.push("การสะกดคำ");
+  if(document.getElementById("cp").checked) checks.push("วรรคตอน");
+  const promptLines=[
+    "ตรวจสอบภาษาไทย: "+(checks.join(", ")||"สะกดคำ"),
+    "แบรนด์: "+(DB.brand.join(",")||"ไม่มี"),
+    "อนุมัติ: "+(DB.approved.join(",")||"ไม่มี"),
+    "ต้องห้าม: "+(DB.forbidden.join(",")||"ไม่มี"),
+    "","ข้อความ:","\"\"\"",text,"\"\"\"","",
+    'JSON เท่านั้น: {"corrected":"...","issues":[{"type":"spelling|punctuation|brand|forbidden","original":"...","corrected":"...","explanation":"..."}],"summary":"..."}'
+  ];
+  try{
+    const res=await fetch("/api/gemini",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
+    });
+    const data=await res.json();
+    if(data.error) throw new Error(data.error.message);
+    const raw=(data.candidates||[]).map(function(cd){
+      return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");
+    }).join("");
+    const result=parseJ(raw);
+    lastTxt=result.corrected||text;
+    renderTxt(text,result);
+  }catch(err){alert("เกิดข้อผิดพลาด: "+err.message);}
+  btn.disabled=false; btn.innerHTML="ตรวจสอบ";
+}
+
+function renderTxt(orig,result){
+  const iss=result.issues||[], corr=result.corrected||orig;
+  document.getElementById("tres").style.display="flex";
+  function t(type){return iss.filter(function(i){return i.type===type;}).length;}
+  document.getElementById("tst").innerHTML=
+    '<div class="sc"><div class="sn" style="color:var(--red)">'+t("spelling")+'</div><div class="sl">สะกด</div></div>'+
+    '<div class="sc"><div class="sn" style="color:var(--amb)">'+t("punctuation")+'</div><div class="sl">วรรค</div></div>'+
+    '<div class="sc"><div class="sn" style="color:var(--blu)">'+t("brand")+'</div><div class="sl">แบรนด์</div></div>'+
+    '<div class="sc"><div class="sn" style="color:#A00020">'+t("forbidden")+'</div><div class="sl">ต้องห้าม</div></div>';
+  let oh=esc(orig), ch=esc(corr);
+  const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
+  iss.forEach(function(i){
+    if(!i.original) return;
+    const e=esc(i.original);
+    const cls=i.type==="forbidden"?"ffo":i.type==="brand"?"fbr":"del";
+    oh=oh.replace(new RegExp(reEsc(e),"g"),'<span class="'+cls+'">'+e+"</span>");
+  });
+  iss.forEach(function(i){
+    if(!i.corrected||i.type==="forbidden") return;
+    const e=esc(i.corrected);
+    ch=ch.replace(new RegExp(reEsc(e),"g"),'<span class="ins">'+e+"</span>");
+  });
+  document.getElementById("dor").innerHTML=oh;
+  document.getElementById("dco").innerHTML=ch;
+  document.getElementById("tic").textContent=iss.length+" รายการ";
+  document.getElementById("til").innerHTML=iss.length?iss.map(function(i){
+    const bc=(bm[i.type]||["bsp",i.type])[0];
+    const bl=(bm[i.type]||["bsp",i.type])[1];
+    const fh=i.type==="forbidden"?'<span style="color:var(--red)">⚠ ต้องห้าม</span>':
+      '<span style="color:var(--grn)">→ '+esc(i.corrected||"")+"</span>";
+    return'<div class="ii"><span class="ibg '+bc+'">'+bl+'</span>'+
+      '<div><div class="i-orig">'+esc(i.original||"")+" "+fh+'</div>'+
+      '<div class="i-exp">'+esc(i.explanation||"")+"</div></div></div>";
+  }).join(""):'<div class="es">✓ ไม่พบข้อผิดพลาด</div>';
+}
+function copyTxt(){
+  if(lastTxt) navigator.clipboard.writeText(lastTxt).catch(function(){prompt("คัดลอก:",lastTxt);});
+}
+
+function swTab(t,btn){
+  document.querySelectorAll(".ws").forEach(function(s){s.classList.remove("on");});
+  document.querySelectorAll(".wtb").forEach(function(b){b.classList.remove("on");});
+  document.getElementById("ws-"+t).classList.add("on"); btn.classList.add("on");
+}
+function addW(t){
+  const inp=document.getElementById("wi-"+t), w=inp.value.trim();
+  if(!w||DB[t].includes(w)){inp.value="";return;}
+  DB[t].push(w); inp.value=""; renderWC(t); updDB();
+}
+function rmW(t,w){DB[t]=DB[t].filter(function(x){return x!==w;});renderWC(t);updDB();}
+function renderWC(t){
+  const el=document.getElementById("wc-"+t);
+  if(!DB[t].length){el.innerHTML='<span style="color:var(--tx3);font-size:12px">ยังไม่มีคำ</span>';return;}
+  const cls={brand:"wcbr",approved:"wcap",forbidden:"wcfo"}[t];
+  el.innerHTML=DB[t].map(function(w){
+    return'<div class="wc '+cls+'">'+esc(w)+
+      '<button class="wcd" onclick="rmW(\''+t+'\',\''+w.replace(/'/g,"\\'")+'\')">×</button></div>';
+  }).join("");
+}
+function updDB(){
+  document.getElementById("cnt-br").textContent=DB.brand.length;
+  document.getElementById("cnt-ap").textContent=DB.approved.length;
+  document.getElementById("cnt-fo").textContent=DB.forbidden.length;
+  const pills=document.getElementById("db-pills");
+  pills.innerHTML=
+    (DB.brand.length?'<span style="font-size:11px;background:var(--blubg);color:var(--blu);padding:1px 7px;border-radius:99px;border:1px solid var(--blubd)">'+DB.brand.length+' แบรนด์</span>':"")+
+    (DB.forbidden.length?'<span style="font-size:11px;background:var(--redbg);color:var(--red);padding:1px 7px;border-radius:99px;border:1px solid var(--redbd)">'+DB.forbidden.length+' ต้องห้าม</span>':"");
+}
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
+
+["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
+updDB();
+
+</script>
+</body>
+</html>
