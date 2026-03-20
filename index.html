@@ -426,7 +426,9 @@ function ocrToText(){
     const words=pageWords[p];
     parts.push("[Page "+p+"] "+words.map(function(w){return w.text;}).join(" "));
   });
-  return parts.join(" | ");
+  const full=parts.join(" | ");
+  // Limit to 4000 chars to stay within Gemini free tier token limits
+  return full.length>4000 ? full.slice(0,4000)+"..." : full;
 }
 
 async function runProof(){
@@ -470,7 +472,7 @@ async function runProof(){
 
     const res=await fetch("/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8192}})
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
     });
     if(!res.ok){const t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,200));}
     const data=await res.json();
