@@ -100,7 +100,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     proxyPost(req, res, 'generativelanguage.googleapis.com',
-      '/v1beta/models/gemini-1.5-flash-8b-latest:generateContent?key=' + GM_KEY, {});
+      '/v1beta/models/gemini-2.0-flash:generateContent?key=' + GM_KEY, {});
     return;
   }
 
