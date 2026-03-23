@@ -459,7 +459,7 @@ async function callGemini(prompt){
 async function callTyphoon(prompt){
   var res=await fetch("/api/typhoon",{
     method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"typhoon-v2-70b-instruct",messages:[{role:"user",content:prompt}],temperature:0.1,max_tokens:2048})
+    body:JSON.stringify({model:"typhoon-v2.5-30b-a3b-instruct",messages:[{role:"user",content:prompt}],temperature:0.1,max_tokens:2048})
   });
   if(!res.ok){var t=await res.text();throw new Error("Typhoon "+res.status+": "+t.slice(0,150));}
   var data=await res.json();
