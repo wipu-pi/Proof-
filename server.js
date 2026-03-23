@@ -28,6 +28,7 @@ const MIME = {
   '.css':  'text/css',
   '.json': 'application/json',
   '.ico':  'image/x-icon',
+  '.pdf':  'application/pdf',
 };
 
 function proxyPost(req, res, hostname, pathname, extraHeaders) {
@@ -123,6 +124,99 @@ const server = http.createServer((req, res) => {
     proxyPost(req, res, 'api.opentyphoon.ai',
       '/v1/chat/completions',
       { 'Authorization': 'Bearer ' + TY_KEY });
+    return;
+  }
+
+
+  // POST /api/stamp-pdf -> stamp highlights onto PDF using pdf-lib
+  if (req.method === 'POST' && parsed.pathname === '/api/stamp-pdf') {
+    let body = Buffer.alloc(0);
+    req.on('data', chunk => { body = Buffer.concat([body, chunk]); });
+    req.on('end', async () => {
+      try {
+        const { PDFDocument, rgb } = require('pdf-lib');
+        const payload = JSON.parse(body.toString());
+        // payload: { pdfBase64, issues, pageWords }
+        // pageWords[page] = [{text,x,y,w,h,imgW,imgH}]
+        const pdfBytes = Buffer.from(payload.pdfBase64, 'base64');
+        const pdfDoc = await PDFDocument.load(pdfBytes);
+        const pages = pdfDoc.getPages();
+        const colorMap = {
+          spelling:    { r:0.85, g:0.18, b:0.18 },
+          punctuation: { r:0.82, g:0.44, b:0.02 },
+          brand:       { r:0.10, g:0.33, b:0.88 },
+          forbidden:   { r:0.63, g:0.00, b:0.13 },
+        };
+
+        (payload.issues || []).forEach(function(iss) {
+          var pageIdx = (iss.page || 1) - 1;
+          if (pageIdx < 0 || pageIdx >= pages.length) return;
+          var page = pages[pageIdx];
+          var pw = page.getWidth();
+          var ph = page.getHeight();
+          var words = (payload.pageWords || {})[iss.page || 1] || [];
+          if (!words.length) return;
+          var imgW = words[0].imgW || 1000;
+          var imgH = words[0].imgH || 1414;
+          var scX = pw / imgW;
+          var scY = ph / imgH;
+          var col = colorMap[iss.type] || colorMap.spelling;
+          var s = (iss.original || '').trim();
+
+          // Find matching word rects (same logic as frontend)
+          var rects = [];
+          for (var i = 0; i < words.length; i++) {
+            if (words[i].text === s) { rects.push(words[i]); if (rects.length >= 5) break; }
+          }
+          if (!rects.length) {
+            for (var i = 0; i < words.length; i++) {
+              if (words[i].text.includes(s)) { rects.push(words[i]); if (rects.length >= 5) break; }
+            }
+          }
+          if (!rects.length) {
+            for (var i = 0; i < words.length; i++) {
+              if (words[i].text.trim().length >= 2 && s.includes(words[i].text.trim())) {
+                rects.push(words[i]); if (rects.length >= 8) break;
+              }
+            }
+          }
+          // Merge into single bbox if multiple
+          if (rects.length > 1) {
+            var mx=rects[0].x,my=rects[0].y,mr=rects[0].x+rects[0].w,mb=rects[0].y+rects[0].h;
+            rects.forEach(function(r){mx=Math.min(mx,r.x);my=Math.min(my,r.y);mr=Math.max(mr,r.x+r.w);mb=Math.max(mb,r.y+r.h);});
+            rects=[{x:mx,y:my,w:mr-mx,h:mb-my,imgW:words[0].imgW,imgH:words[0].imgH}];
+          }
+
+          rects.forEach(function(r) {
+            var x = r.x * scX;
+            // PDF coords: y=0 is bottom, so flip
+            var y = ph - (r.y * scY) - (r.h * scY);
+            var w = r.w * scX;
+            var h = r.h * scY;
+            if (w < 2 || h < 2) return;
+            page.drawRectangle({
+              x: x, y: y, width: w, height: h,
+              color: rgb(col.r, col.g, col.b),
+              opacity: 0.3,
+              borderColor: rgb(col.r * 0.7, col.g * 0.7, col.b * 0.7),
+              borderWidth: 1,
+            });
+          });
+        });
+
+        const outBytes = await pdfDoc.save();
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="proofed.pdf"',
+          'Content-Length': outBytes.length,
+        });
+        res.end(Buffer.from(outBytes));
+      } catch (err) {
+        console.error('stamp-pdf error:', err.message);
+        res.writeHead(500);
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
 

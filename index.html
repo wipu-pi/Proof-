@@ -218,6 +218,8 @@ textarea:focus{border-color:var(--tx)}
         <div class="sp"></div>
         <div class="stats" id="pst" style="max-width:280px"></div>
         <button class="btn btn-sm" onclick="copyCorr()">📋 คัดลอก</button>
+        <button class="btn btn-sm" id="btn-dlpdf" onclick="downloadPdf()" style="background:var(--redbg);color:var(--red);border-color:var(--redbd)">⬇ PDF</button>
+        <button class="btn btn-sm" id="btn-dlxls" onclick="downloadExcel()" style="background:var(--grnbg);color:var(--grn);border-color:var(--grnbd)">⬇ Excel</button>
       </div>
       <div class="pwrap">
         <div class="viewer" id="viewer"></div>
@@ -864,6 +866,66 @@ function updDB(){
 
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
+
+
+// ── DOWNLOAD PDF (highlighted) ─────────────────────────────────────────────
+async function downloadPdf(){
+  var btn=document.getElementById("btn-dlpdf");
+  btn.textContent="กำลังสร้าง..."; btn.disabled=true;
+  try{
+    // Convert pdfBytes to base64
+    var bytes=pdfBytes;
+    if(!bytes){alert("กรุณาอัพโหลด PDF ก่อน");return;}
+    var bin="";
+    for(var i=0;i<bytes.length;i+=8192) bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+8192));
+    var b64=btoa(bin);
+    var res=await fetch("/api/stamp-pdf",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({pdfBase64:b64, issues:issues, pageWords:pageWords})
+    });
+    if(!res.ok) throw new Error("Server "+res.status);
+    var blob=await res.blob();
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement("a");
+    a.href=url; a.download="proofed.pdf"; a.click();
+    URL.revokeObjectURL(url);
+  }catch(err){alert("ดาวน์โหลดไม่สำเร็จ: "+err.message);}
+  btn.textContent="⬇ PDF"; btn.disabled=false;
+}
+
+// ── DOWNLOAD EXCEL REPORT ──────────────────────────────────────────────────
+function downloadExcel(){
+  if(!issues.length){alert("ยังไม่มีข้อผิดพลาดให้ดาวน์โหลด");return;}
+  var typeMap={spelling:"สะกดคำ",punctuation:"วรรคตอน",brand:"แบรนด์",forbidden:"ต้องห้าม"};
+  // Build CSV (opens in Excel)
+  var rows=[["หน้า","ประเภท","คำผิด","คำที่ถูก","คำอธิบาย","โมเดล"]];
+  issues.forEach(function(iss){
+    var modelNote="";
+    if(document.getElementById("model-sel").value==="both"){
+      modelNote=iss.confirmed===false?"1 โมเดล":"2 โมเดล (ยืนยัน)";
+    }
+    rows.push([
+      iss.page||1,
+      typeMap[iss.type]||iss.type,
+      iss.original||"",
+      iss.corrected||"",
+      iss.explanation||"",
+      modelNote
+    ]);
+  });
+  // UTF-8 BOM for Thai in Excel
+  var csv="﻿"+rows.map(function(r){
+    return r.map(function(cell){
+      var s=String(cell).replace(/"/g,'""');
+      return'"'+s+'"';
+    }).join(",");
+  }).join("\n");
+  var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement("a");
+  a.href=url; a.download="proof_report.csv"; a.click();
+  URL.revokeObjectURL(url);
+}
 
 ["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
 updDB();
