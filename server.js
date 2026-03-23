@@ -16,9 +16,11 @@ const url   = require('url');
 const PORT   = process.env.PORT || 3000;
 const GV_KEY = process.env.GV_KEY || '';
 const GM_KEY = process.env.GM_KEY || '';
+const TY_KEY = process.env.TY_KEY || '';
 
 if (!GV_KEY) console.warn('⚠  GV_KEY not set — Google Vision will fail');
 if (!GM_KEY) console.warn('⚠  GM_KEY not set — Gemini will fail');
+if (!TY_KEY) console.warn('⚠  TY_KEY not set — Typhoon will fail');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -111,6 +113,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // POST /api/typhoon -> Typhoon API (OpenAI-compatible)
+  if (req.method === 'POST' && parsed.pathname === '/api/typhoon') {
+    if (!TY_KEY) {
+      res.writeHead(500);
+      res.end(JSON.stringify({ error: { message: 'TY_KEY not configured on server' } }));
+      return;
+    }
+    proxyPost(req, res, 'api.opentyphoon.ai',
+      '/v1/chat/completions',
+      { 'Authorization': 'Bearer ' + TY_KEY });
+    return;
+  }
+
   // Static files
   let filePath = parsed.pathname === '/' ? '/index.html' : parsed.pathname;
   filePath = path.join(__dirname, filePath);
@@ -128,4 +143,5 @@ server.listen(PORT, () => {
   console.log('\nProofTH Server running on port ' + PORT);
   console.log('GV_KEY: ' + (GV_KEY ? GV_KEY.slice(0,12)+'...' : 'NOT SET'));
   console.log('GM_KEY: ' + (GM_KEY ? GM_KEY.slice(0,12)+'...' : 'NOT SET'));
+console.log('TY_KEY: ' + (TY_KEY ? TY_KEY.slice(0,12)+'...' : 'NOT SET'));
 });

@@ -116,6 +116,10 @@ body{font-family:'IBM Plex Sans Thai',sans-serif;background:var(--bg);color:var(
 .wcd{width:13px;height:13px;border-radius:50%;background:rgba(0,0,0,.15);color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:none;flex-shrink:0}
 .wcd:hover{background:var(--red)}
 .lbl{font-size:11px;color:var(--tx3);margin-bottom:5px}
+.msel{padding:6px 10px;border:1px solid var(--bd2);border-radius:var(--rs);font-family:inherit;font-size:12px;background:var(--sur);color:var(--tx);cursor:pointer;outline:none}
+.msel:focus{border-color:var(--blu)}
+.conf-ok{font-size:10px;background:#EDF7EE;color:#297A30;padding:1px 5px;border-radius:99px;border:1px solid rgba(41,122,48,.2);flex-shrink:0;margin-top:2px}
+.conf-warn{font-size:10px;background:#FEF6E4;color:#8C5A0A;padding:1px 5px;border-radius:99px;border:1px solid rgba(140,90,10,.2);flex-shrink:0;margin-top:2px}
 .es{color:var(--tx3);font-size:13px;text-align:center;padding:20px}
 input[type=file]{display:none}
 textarea{width:100%;min-height:110px;padding:9px 11px;border:1px solid var(--bd2);border-radius:var(--rs);font-family:inherit;font-size:14px;line-height:1.8;resize:vertical;background:var(--bg);color:var(--tx);outline:none}
@@ -177,11 +181,21 @@ textarea:focus{border-color:var(--tx)}
               <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cf" checked><span>คำต้องห้าม</span></label>
             </div>
           </div>
-          <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
-            <span id="gm" style="font-size:11px;color:var(--tx3)"></span>
-            <button class="btn btn-p" id="bg" onclick="runProof()" disabled>
-              <span class="spin" id="sg" style="display:none"></span>ตรวจสอบ PDF
-            </button>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div>
+              <div class="lbl">AI Model</div>
+              <select class="msel" id="model-sel">
+                <option value="gemini">🤖 Gemini 2.5 Flash</option>
+                <option value="typhoon">🇹🇭 Typhoon v2 (Thai)</option>
+                <option value="both">⚡ Gemini + Typhoon (Best)</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <span id="gm" style="font-size:11px;color:var(--tx3)"></span>
+              <button class="btn btn-p" id="bg" onclick="runProof()" disabled>
+                <span class="spin" id="sg" style="display:none"></span>ตรวจสอบ PDF
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -431,25 +445,66 @@ function ocrToText(){
   return full.length>2000 ? full.slice(0,2000)+"..." : full;
 }
 
+async function callGemini(prompt){
+  var res=await fetch("/api/gemini",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
+  });
+  if(!res.ok){var t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,150));}
+  var data=await res.json();
+  if(data.error) throw new Error("Gemini: "+data.error.message);
+  return (data.candidates||[]).map(function(cd){return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");}).join("");
+}
+
+async function callTyphoon(prompt){
+  var res=await fetch("/api/typhoon",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"typhoon-v2-70b-instruct",messages:[{role:"user",content:prompt}],temperature:0.1,max_tokens:2048})
+  });
+  if(!res.ok){var t=await res.text();throw new Error("Typhoon "+res.status+": "+t.slice(0,150));}
+  var data=await res.json();
+  if(data.error) throw new Error("Typhoon: "+(data.error.message||JSON.stringify(data.error)));
+  return ((data.choices||[])[0]||{}).message ? data.choices[0].message.content : "";
+}
+
+function mergeIssues(issA, issB){
+  // Mark issues from A as confirmed if B also found same original word
+  var bOriginals=issB.map(function(i){return i.original;});
+  var aOriginals=issA.map(function(i){return i.original;});
+  var merged=[];
+  // Issues found by A
+  issA.forEach(function(iss){
+    var foundInB=bOriginals.indexOf(iss.original)>=0;
+    merged.push(Object.assign({},iss,{confirmed:foundInB, source:"A"}));
+  });
+  // Issues found only by B (not in A)
+  issB.forEach(function(iss){
+    var foundInA=aOriginals.indexOf(iss.original)>=0;
+    if(!foundInA){
+      merged.push(Object.assign({},iss,{confirmed:false, source:"B"}));
+    }
+  });
+  return merged;
+}
+
 async function runProof(){
   if(!pdfDoc){setGo("กรุณาอัพโหลด PDF ก่อน");return;}
-  const btn=document.getElementById("bg"), sp=document.getElementById("sg");
+  var btn=document.getElementById("bg"), sp=document.getElementById("sg");
+  var model=document.getElementById("model-sel").value;
   btn.disabled=true; sp.style.display="inline-block";
   try{
     setGo("กำลังรัน Google Vision OCR...");
     await runVisionOCR();
     document.getElementById("ocr-wrap").style.display="none";
 
-    const ocrText=ocrToText();
-    setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
-
-    const checks=[];
+    var ocrText=ocrToText();
+    var checks=[];
     if(document.getElementById("cs").checked) checks.push("การสะกดคำและคำผิด");
     if(document.getElementById("cp").checked) checks.push("เครื่องหมายวรรคตอน");
     if(document.getElementById("cb2").checked&&DB.brand.length) checks.push("คำเฉพาะแบรนด์");
     if(document.getElementById("cf").checked&&DB.forbidden.length) checks.push("คำต้องห้าม");
 
-    const promptLines=[
+    var promptLines=[
       "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ",
       "",
       "นี่คือข้อความที่สกัดจาก PDF ด้วย Google Vision OCR:",
@@ -468,24 +523,39 @@ async function runProof(){
       "original ต้องตรงกับข้อความใน OCR ทุกตัวอักษร",
       "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
     ];
-    const prompt=promptLines.join("\n");
+    var prompt=promptLines.join("\n");
 
-    const res=await fetch("/api/gemini",{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
-    });
-    if(!res.ok){const t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,200));}
-    const data=await res.json();
-    if(data.error) throw new Error("Gemini: "+data.error.message);
-    const raw=(data.candidates||[]).map(function(cd){
-      return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");
-    }).join("");
-    const result=parseJ(raw);
-    issues=Array.isArray(result.issues)?result.issues:[];
-    corrText=result.corrected||"";
+    var raw="", rawB="";
+
+    if(model==="gemini"){
+      setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
+      raw=await callGemini(prompt);
+      var result=parseJ(raw);
+      issues=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true});});
+      corrText=result.corrected||"";
+
+    } else if(model==="typhoon"){
+      setGo("กำลังส่งให้ Typhoon ตรวจสอบ...");
+      raw=await callTyphoon(prompt);
+      var result=parseJ(raw);
+      issues=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true});});
+      corrText=result.corrected||"";
+
+    } else if(model==="both"){
+      setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
+      raw=await callGemini(prompt);
+      setGo("กำลังส่งให้ Typhoon ตรวจสอบ...");
+      rawB=await callTyphoon(prompt);
+      var resA=parseJ(raw);
+      var resB=parseJ(rawB);
+      var issA=Array.isArray(resA.issues)?resA.issues:[];
+      var issB=Array.isArray(resB.issues)?resB.issues:[];
+      issues=mergeIssues(issA,issB);
+      corrText=resA.corrected||resB.corrected||"";
+    }
 
     document.getElementById("uv").style.display="none";
-    const pv=document.getElementById("pv");
+    var pv=document.getElementById("pv");
     pv.style.display="flex"; pv.style.flexDirection="column";
     curP=1; focIdx=-1;
     await renderPage(curP);
@@ -497,6 +567,7 @@ async function runProof(){
   }
   btn.disabled=false; sp.style.display="none"; setGo("");
 }
+
 
 function parseJ(raw){
   var s=raw.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
@@ -629,15 +700,16 @@ function renderIssues(){
   document.getElementById("icnt").textContent=issues.length+" รายการ";
   if(!issues.length){body.innerHTML='<div class="es">✓ ไม่พบข้อผิดพลาด</div>';renderCorr();return;}
   const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
-  body.innerHTML=issues.map(function(iss,i){
-    const bc=(bm[iss.type]||["bsp",iss.type])[0];
-    const bl=(bm[iss.type]||["bsp",iss.type])[1];
-    const fix=iss.type==="forbidden"?'<div class="i-fix" style="color:var(--red)">⚠ ต้องห้าม</div>':
+    body.innerHTML=issues.map(function(iss,i){
+    var bc=(bm[iss.type]||["bsp",iss.type])[0];
+    var bl=(bm[iss.type]||["bsp",iss.type])[1];
+    var fix=iss.type==="forbidden"?'<div class="i-fix" style="color:var(--red)">⚠ ต้องห้าม</div>':
       '<div class="i-fix">→ '+esc(iss.corrected||"")+"</div>";
-    const pg=iss.page?'<span class="pgp">หน้า '+iss.page+'</span>':"";
-    return'<div class="ii" id="ii-'+i+'" onclick="focIssue('+i+')">'+
-      '<span class="ibg '+bc+'">'+bl+'</span>'+
-      '<div style="flex:1;min-width:0"><div class="i-orig">'+esc(iss.original||"")+"</div>"+
+    var pg=iss.page?'<span class="pgp">หน้า '+iss.page+'</span>':"";
+    var isBoth=document.getElementById("model-sel").value==="both";
+    var badge=isBoth?(iss.confirmed===false?'<span class="conf-warn">⚠ 1 โมเดล</span>':'<span class="conf-ok">✓ 2 โมเดล</span>'):"";
+    return'<div class="ii" id="ii-'+i+'" onclick="focIssue('+i+')"><span class="ibg '+bc+'">'+bl+'</span>'+
+      '<div style="flex:1;min-width:0"><div class="i-orig" style="display:flex;align-items:center;gap:4px">'+esc(iss.original||"")+badge+"</div>"+
       fix+'<div class="i-exp">'+esc(iss.explanation||"")+"</div></div>"+pg+"</div>";
   }).join("");
   renderCorr();
