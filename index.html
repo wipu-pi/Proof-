@@ -120,6 +120,15 @@ body{font-family:'IBM Plex Sans Thai',sans-serif;background:var(--bg);color:var(
 .msel:focus{border-color:var(--blu)}
 .conf-ok{font-size:10px;background:#EDF7EE;color:#297A30;padding:1px 5px;border-radius:99px;border:1px solid rgba(41,122,48,.2);flex-shrink:0;margin-top:2px}
 .conf-warn{font-size:10px;background:#FEF6E4;color:#8C5A0A;padding:1px 5px;border-radius:99px;border:1px solid rgba(140,90,10,.2);flex-shrink:0;margin-top:2px}
+.fbar{display:flex;gap:3px;padding:6px 8px;border-bottom:1px solid var(--bd);flex-wrap:wrap;flex-shrink:0}
+.ftag{padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:.12s;user-select:none;opacity:.45}
+.ftag.on{opacity:1}
+.ftag-all{background:var(--sur2);color:var(--tx);border-color:var(--bd2)}
+.ftag-all.on{background:var(--tx);color:#fff;border-color:var(--tx)}
+.ftag-sp{background:var(--redbg);color:var(--red);border-color:var(--redbd)}
+.ftag-pu{background:var(--ambbg);color:var(--amb);border-color:var(--ambbd)}
+.ftag-br{background:var(--blubg);color:var(--blu);border-color:var(--blubd)}
+.ftag-fo{background:#F5E0E0;color:#7A0A0A;border-color:rgba(122,10,10,.2)}
 .es{color:var(--tx3);font-size:13px;text-align:center;padding:20px}
 input[type=file]{display:none}
 textarea{width:100%;min-height:110px;padding:9px 11px;border:1px solid var(--bd2);border-radius:var(--rs);font-family:inherit;font-size:14px;line-height:1.8;resize:vertical;background:var(--bg);color:var(--tx);outline:none}
@@ -227,6 +236,13 @@ textarea:focus{border-color:var(--tx)}
           <div class="iph">
             <span class="ct">ข้อผิดพลาด</span>
             <span id="icnt" style="font-size:11px;background:var(--sur2);padding:1px 7px;border-radius:99px;color:var(--tx2)"></span>
+          </div>
+          <div class="fbar">
+            <span class="ftag ftag-all on" onclick="setFilter('all',this)">ทั้งหมด</span>
+            <span class="ftag ftag-sp" onclick="setFilter('spelling',this)">สะกดคำ</span>
+            <span class="ftag ftag-pu" onclick="setFilter('punctuation',this)">วรรคตอน</span>
+            <span class="ftag ftag-br" onclick="setFilter('brand',this)">แบรนด์</span>
+            <span class="ftag ftag-fo" onclick="setFilter('forbidden',this)">ต้องห้าม</span>
           </div>
           <div class="ipb" id="ibody"></div>
           <div class="csec">
@@ -559,7 +575,10 @@ async function runProof(){
     document.getElementById("uv").style.display="none";
     var pv=document.getElementById("pv");
     pv.style.display="flex"; pv.style.flexDirection="column";
-    curP=1; focIdx=-1;
+    curP=1; focIdx=-1; curFilter="all";
+    // Reset filter buttons
+    document.querySelectorAll(".ftag").forEach(function(t){t.classList.remove("on");});
+    var allTag=document.querySelector(".ftag-all");if(allTag)allTag.classList.add("on");
     await renderPage(curP);
     renderStats(); renderIssues();
   }catch(err){
@@ -697,12 +716,26 @@ function findGVRects(words,s,cW,cH){
   return out;
 }
 
+
+// ── FILTER ─────────────────────────────────────────────────────────────────
+function setFilter(type, el){
+  curFilter=type;
+  document.querySelectorAll(".ftag").forEach(function(t){t.classList.remove("on");});
+  el.classList.add("on");
+  renderIssues();
+}
 function renderIssues(){
   const body=document.getElementById("ibody");
-  document.getElementById("icnt").textContent=issues.length+" รายการ";
-  if(!issues.length){body.innerHTML='<div class="es">✓ ไม่พบข้อผิดพลาด</div>';renderCorr();return;}
+  var filtered=curFilter==="all"?issues:issues.filter(function(i){return i.type===curFilter;});
+  var total=issues.length, shown=filtered.length;
+  document.getElementById("icnt").textContent=curFilter==="all"?total+" รายการ":shown+" / "+total+" รายการ";
+  if(!filtered.length){
+    body.innerHTML=issues.length?'<div class="es">ไม่มีข้อผิดพลาดประเภทนี้</div>':'<div class="es">✓ ไม่พบข้อผิดพลาด</div>';
+    renderCorr();return;
+  }
   const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
-    body.innerHTML=issues.map(function(iss,i){
+    body.innerHTML=filtered.map(function(iss){
+    var i=issues.indexOf(iss);
     var bc=(bm[iss.type]||["bsp",iss.type])[0];
     var bl=(bm[iss.type]||["bsp",iss.type])[1];
     var fix=iss.type==="forbidden"?'<div class="i-fix" style="color:var(--red)">⚠ ต้องห้าม</div>':
