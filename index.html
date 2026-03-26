@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ProofTH</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -338,6 +339,11 @@ textarea:focus{border-color:var(--tx)}
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
+// ── WORKER URL — update this after deploying Cloudflare Worker ─────────────
+var WORKER_URL = "https://proofth.wipu-pic.workers.dev";
+// To find your URL: run "wrangler deploy" and copy the URL it gives you
+// Example: var WORKER_URL = "https://proofth.wipu-pi.workers.dev";
+
 const DB = {brand:[], approved:[], forbidden:[]};
 let pdfDoc=null, pdfBytes=null;
 let issues=[], corrText="", lastTxt="";
@@ -416,7 +422,7 @@ async function runVisionOCR(){
   for(let p=1;p<=totP;p++){
     setOcr("Google Vision OCR หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
     const imgB64=await pageToImg(p);
-    const res=await fetch("/api/vision",{
+    const res=await fetch(WORKER_URL+"/api/vision",{
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"DOCUMENT_TEXT_DETECTION"}]}]})
     });
@@ -464,7 +470,7 @@ function ocrToText(){
 }
 
 async function callGemini(prompt){
-  var res=await fetch("/api/gemini",{
+  var res=await fetch(WORKER_URL+"/api/gemini",{
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
   });
@@ -475,7 +481,7 @@ async function callGemini(prompt){
 }
 
 async function callTyphoon(prompt){
-  var res=await fetch("/api/typhoon",{
+  var res=await fetch(WORKER_URL+"/api/typhoon",{
     method:"POST", headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"typhoon-v2.5-30b-a3b-instruct",messages:[{role:"user",content:prompt}],temperature:0.1,max_tokens:4096})
   });
@@ -522,25 +528,57 @@ async function runProof(){
     if(document.getElementById("cb2").checked&&DB.brand.length) checks.push("คำเฉพาะแบรนด์");
     if(document.getElementById("cf").checked&&DB.forbidden.length) checks.push("คำต้องห้าม");
 
+    // Build Thai-specific prompt
+    var spellRules=document.getElementById("cs").checked?[
+      "การสะกดคำ — ตรวจสอบตามพจนานุกรมราชบัณฑิตยสภา:",
+      "  • ไ- กับ ใ- : คำที่ใช้ ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใสใจ ใหน ใส่ ใส ใต้ ใฝ) ที่เหลือใช้ ไ-",
+      "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก หนัง ฯลฯ — ห นำทำให้เสียงสูง",
+      "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
+      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด/กระทัดรัด, ทะเลาะ/ทะเลา, เลขา/เลขาฯ, กระทรวง/กระทรวง",
+      "  • สระ อ กับ อ์ : สังเกตคำที่ออกเสียงต่างกัน",
+      "  • ตัวสะกด : แม่กก กด กน กม กง กว กย กร"
+    ].join("\n"):"";
+
+    var punctRules=document.getElementById("cp").checked?[
+      "วรรคตอน — ตรวจสอบตามหลักภาษาไทย:",
+      "  • ไม่ใช้ comma (,) แยกประโยคในภาษาไทย — ใช้การเว้นวรรคแทน",
+      "  • มหัพภาค (.) ใช้เฉพาะตัวย่อ ไม่ใช้ตอนท้ายประโยค",
+      "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
+      "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ พระบาทสมเด็จพระเจ้าอยู่หัวฯ",
+      "  • วงเล็บ () ใส่ space ด้านนอก ไม่ใส่ด้านใน"
+    ].join("\n"):"";
+
     var promptLines=[
-      "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ",
+      "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
+      "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
       "",
-      "นี่คือข้อความที่สกัดจาก PDF ด้วย Google Vision OCR:",
-      "",
+      "== ข้อความจาก PDF (Google Vision OCR) ==",
       ocrText,
       "",
-      "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
+      "== ประเภทที่ต้องตรวจ ==",
+      checks.join(", ")||"การสะกดคำ",
       "",
-      "คลังคำ:",
-      "- แบรนด์ (สะกดต้องตรงเป๊ะ): "+(DB.brand.join(", ")||"ไม่มี"),
-      "- อนุมัติ (ข้ามไม่ต้องแก้): "+(DB.approved.join(", ")||"ไม่มี"),
-      "- ต้องห้าม (รายงานทุกครั้ง): "+(DB.forbidden.join(", ")||"ไม่มี"),
+      spellRules,
+      punctRules,
       "",
-      'ตอบ JSON เท่านั้น ห้าม markdown: {"corrected":"ข้อความสั้นที่แก้แล้ว","issues":[{"type":"spelling","original":"คำผิดตรงตาม OCR","corrected":"คำถูก","explanation":"อธิบาย","page":1}],"summary":"สรุป"}',
-      "type: spelling / punctuation / brand / forbidden",
-      "original ต้องตรงกับข้อความใน OCR ทุกตัวอักษร",
+      "== คลังคำขององค์กร ==",
+      "แบรนด์/ชื่อเฉพาะ (ต้องสะกดตรงทุกตัวอักษร): "+(DB.brand.join(", ")||"ไม่มี"),
+      "คำอนุมัติ (ห้ามแก้แม้ดูผิด): "+(DB.approved.join(", ")||"ไม่มี"),
+      "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
+      "",
+      "== กฎสำคัญ ==",
+      "1. original ต้องคัดลอกมาจากข้อความ OCR ด้านบนทุกตัวอักษร — ใช้ค้นหาตำแหน่งบน PDF",
+      "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
+      "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
+      "4. ถ้า OCR อ่านผิดพลาด (เช่น ตัวอักษรเป็นสัญลักษณ์แปลก) ให้ข้ามไป",
+      "5. เรียงลำดับ issues ตามหน้า (page) จากน้อยไปมาก",
+      "",
+      "== รูปแบบการตอบ ==",
+      'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown ห้ามมีข้อความนำหน้าหรือท้าย:',
+      '{"corrected":"ย่อหน้าแรกที่แก้ไขแล้ว (ไม่เกิน 200 คำ)","issues":[{"type":"spelling","original":"คำผิดในเอกสาร","corrected":"คำที่ถูกต้อง","explanation":"อธิบายสั้นๆ ว่าผิดอย่างไร","page":1}],"summary":"สรุปภาพรวม"}',
+      "type ที่ใช้ได้: spelling | punctuation | brand | forbidden",
       "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
-    ];
+    ].filter(function(l){return l!==undefined&&l!==null;});
     var prompt=promptLines.join("\n");
 
     var raw="", rawB="";
@@ -804,15 +842,23 @@ async function runTxt(){
   if(document.getElementById("cs").checked) checks.push("การสะกดคำ");
   if(document.getElementById("cp").checked) checks.push("วรรคตอน");
   const promptLines=[
-    "ตรวจสอบภาษาไทย: "+(checks.join(", ")||"สะกดคำ"),
-    "แบรนด์: "+(DB.brand.join(",")||"ไม่มี"),
-    "อนุมัติ: "+(DB.approved.join(",")||"ไม่มี"),
-    "ต้องห้าม: "+(DB.forbidden.join(",")||"ไม่มี"),
-    "","ข้อความ:","\"\"\"",text,"\"\"\"","",
-    'JSON เท่านั้น: {"corrected":"...","issues":[{"type":"spelling|punctuation|brand|forbidden","original":"...","corrected":"...","explanation":"..."}],"summary":"..."}'
+    "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ตรวจตามมาตรฐานราชบัณฑิตยสภา",
+    "",
+    "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
+    "แบรนด์ (สะกดต้องตรงเป๊ะ): "+(DB.brand.join(", ")||"ไม่มี"),
+    "คำอนุมัติ (ห้ามแก้): "+(DB.approved.join(", ")||"ไม่มี"),
+    "คำต้องห้าม: "+(DB.forbidden.join(", ")||"ไม่มี"),
+    "",
+    "กฎการสะกด: ใ- มี 20 คำเท่านั้น / ห นำ / การันต์ / ตัวสะกดตามแม่ กก กด กน กม กง",
+    "กฎวรรคตอน: ไม่ใช้ comma แยกประโยค / ไม่ใส่ space ก่อนเครื่องหมาย / ฯ ใช้ย่อคำ",
+    "",
+    "ข้อความ:",
+    text,
+    "",
+    'JSON เท่านั้น ห้าม markdown: {"corrected":"ข้อความที่แก้แล้ว","issues":[{"type":"spelling|punctuation|brand|forbidden","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย"}],"summary":"สรุป"}'
   ];
   try{
-    const res=await fetch("/api/gemini",{
+    const res=await fetch(WORKER_URL+"/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
     });
@@ -901,23 +947,76 @@ function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").repl
 function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
 
 
-// ── DOWNLOAD PDF (highlighted) ─────────────────────────────────────────────
+// ── DOWNLOAD PDF (highlighted) — browser-side using pdf-lib CDN ───────────
 async function downloadPdf(){
   var btn=document.getElementById("btn-dlpdf");
   btn.textContent="กำลังสร้าง..."; btn.disabled=true;
   try{
-    // Convert pdfBytes to base64
-    var bytes=pdfBytes;
-    if(!bytes){alert("กรุณาอัพโหลด PDF ก่อน");return;}
-    var bin="";
-    for(var i=0;i<bytes.length;i+=8192) bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+8192));
-    var b64=btoa(bin);
-    var res=await fetch("/api/stamp-pdf",{
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({pdfBase64:b64, issues:issues, pageWords:pageWords})
+    if(!pdfBytes) throw new Error("กรุณาอัพโหลด PDF ก่อน");
+    if(typeof PDFLib==="undefined") throw new Error("pdf-lib ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่");
+
+    var pdfDoc=await PDFLib.PDFDocument.load(pdfBytes);
+    var pages=pdfDoc.getPages();
+    var colorMap={
+      spelling:   [0.85,0.18,0.18],
+      punctuation:[0.82,0.44,0.02],
+      brand:      [0.10,0.33,0.88],
+      forbidden:  [0.63,0.00,0.13]
+    };
+
+    issues.forEach(function(iss){
+      var pageIdx=(iss.page||1)-1;
+      if(pageIdx<0||pageIdx>=pages.length) return;
+      var page=pages[pageIdx];
+      var pw=page.getWidth(), ph=page.getHeight();
+      var words=(pageWords[iss.page||1])||[];
+      if(!words.length) return;
+      var imgW=words[0].imgW||1000, imgH=words[0].imgH||1414;
+      var scX=pw/imgW, scY=ph/imgH;
+      var col=colorMap[iss.type]||colorMap.spelling;
+      var s=(iss.original||"").trim();
+      if(!s) return;
+
+      // Find word rects
+      var rects=[];
+      for(var i=0;i<words.length;i++){
+        if(words[i].text===s){rects.push(words[i]);if(rects.length>=5)break;}
+      }
+      if(!rects.length){
+        for(var i=0;i<words.length;i++){
+          if(words[i].text.includes(s)){rects.push(words[i]);if(rects.length>=5)break;}
+        }
+      }
+      if(!rects.length){
+        for(var i=0;i<words.length;i++){
+          if(words[i].text.trim().length>=2&&s.includes(words[i].text.trim())){
+            rects.push(words[i]);if(rects.length>=8)break;
+          }
+        }
+      }
+      // Merge to single bbox
+      if(rects.length>1){
+        var mx=rects[0].x,my=rects[0].y,mr=rects[0].x+rects[0].w,mb=rects[0].y+rects[0].h;
+        rects.forEach(function(r){mx=Math.min(mx,r.x);my=Math.min(my,r.y);mr=Math.max(mr,r.x+r.w);mb=Math.max(mb,r.y+r.h);});
+        rects=[{x:mx,y:my,w:mr-mx,h:mb-my}];
+      }
+      rects.forEach(function(r){
+        var x=r.x*scX;
+        var y=ph-(r.y*scY)-(r.h*scY); // flip Y — PDF origin is bottom-left
+        var w=r.w*scX, h=r.h*scY;
+        if(w<2||h<2) return;
+        page.drawRectangle({
+          x:x, y:y, width:w, height:h,
+          color:PDFLib.rgb(col[0],col[1],col[2]),
+          opacity:0.3,
+          borderColor:PDFLib.rgb(col[0]*0.7,col[1]*0.7,col[2]*0.7),
+          borderWidth:1
+        });
+      });
     });
-    if(!res.ok) throw new Error("Server "+res.status);
-    var blob=await res.blob();
+
+    var outBytes=await pdfDoc.save();
+    var blob=new Blob([outBytes],{type:"application/pdf"});
     var url=URL.createObjectURL(blob);
     var a=document.createElement("a");
     a.href=url; a.download="proofed.pdf"; a.click();
