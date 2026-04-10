@@ -349,9 +349,14 @@ const DB = {brand:[], approved:[], forbidden:[]};
 let pdfDoc=null, pdfBytes=null;
 let issues=[], corrText="", lastTxt="";
 let curP=1, totP=0, focIdx=-1;
+let curFilter="all";
 let pageWords={};
 var thaiDict = new Set();
 var dictReady = false;
+
+// Prevent browser from navigating when files are dropped outside the drop zone
+document.addEventListener('dragover', function(e){e.preventDefault();});
+document.addEventListener('drop', function(e){e.preventDefault();});
 
 function showPg(id){
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
@@ -363,6 +368,7 @@ function toggleChip(id,el){el.classList.toggle("on");document.getElementById(id)
 
 function onDrop(e){
   e.preventDefault();
+  e.stopPropagation();
   document.getElementById("dz").classList.remove("drag");
   const f=e.dataTransfer.files[0]; if(f) loadPdf(f);
 }
@@ -389,7 +395,7 @@ async function loadPdf(file){
 }
 
 function resetPdf(){
-  pdfDoc=null;pdfBytes=null;issues=[];corrText="";pageWords={};curP=1;totP=0;focIdx=-1;
+  pdfDoc=null;pdfBytes=null;issues=[];corrText="";pageWords={};curP=1;totP=0;focIdx=-1;curFilter="all";
   document.getElementById("dz").style.display="block";
   document.getElementById("fb").innerHTML="";
   document.getElementById("bg").disabled=true;
@@ -848,15 +854,25 @@ async function runTxt(){
   if(document.getElementById("cs").checked) checks.push("การสะกดคำ");
   if(document.getElementById("cp").checked) checks.push("วรรคตอน");
   const promptLines=[
-    "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ตรวจตามมาตรฐานราชบัณฑิตยสภา",
+    "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
+    "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
     "",
     "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
     "แบรนด์ (สะกดต้องตรงเป๊ะ): "+(DB.brand.join(", ")||"ไม่มี"),
-    "คำอนุมัติ (ห้ามแก้): "+(DB.approved.join(", ")||"ไม่มี"),
-    "คำต้องห้าม: "+(DB.forbidden.join(", ")||"ไม่มี"),
+    "คำอนุมัติ (ห้ามแก้แม้ดูผิด): "+(DB.approved.join(", ")||"ไม่มี"),
+    "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
     "",
-    "กฎการสะกด: ใ- มี 20 คำเท่านั้น / ห นำ / การันต์ / ตัวสะกดตามแม่ กก กด กน กม กง",
-    "กฎวรรคตอน: ไม่ใช้ comma แยกประโยค / ไม่ใส่ space ก่อนเครื่องหมาย / ฯ ใช้ย่อคำ",
+    "กฎการสะกด:",
+    "  • ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใส่ ใฝ่) ที่เหลือใช้ ไ-",
+    "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก — ห นำทำให้เสียงสูง",
+    "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
+    "  • ตัวสะกด : แม่กก กด กน กม กง กว กย กร",
+    "กฎวรรคตอน:",
+    "  • ไม่ใช้ comma (,) แยกประโยคในภาษาไทย",
+    "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
+    "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ",
+    "",
+    "กฎสำคัญ: ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
     "",
     "ข้อความ:",
     text,
@@ -1110,3 +1126,6 @@ async function loadThaiDict(){
 loadThaiDict();
 ["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
 updDB();
+</script>
+</body>
+</html>
