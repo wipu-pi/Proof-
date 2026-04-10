@@ -414,14 +414,15 @@ function setOcr(lbl,pct){
 
 async function pageToImg(n){
   const page=await pdfDoc.getPage(n);
-  const vp=page.getViewport({scale:2});
+  const vp=page.getViewport({scale:3});
   const cv=document.createElement("canvas");
   cv.width=vp.width; cv.height=vp.height;
   await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
-  return cv.toDataURL("image/jpeg",0.92).split(",")[1];
+  return cv.toDataURL("image/png").split(",")[1];
 }
-
+  
 async function runVisionOCR(){
+
   pageWords={};
   for(let p=1;p<=totP;p++){
     setOcr("Google Vision OCR หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
