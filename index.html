@@ -44,7 +44,7 @@ body{font-family:'IBM Plex Sans Thai',sans-serif;background:var(--bg);color:var(
 .btn-sm{padding:3px 8px;font-size:11px}
 .drop{border:1.5px dashed var(--bd2);border-radius:var(--r);padding:28px 20px;text-align:center;cursor:pointer;transition:.15s;background:var(--bg)}
 .drop:hover,.drop.drag{border-color:var(--tx);background:var(--sur2)}
-.fbar{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--blubg);border-radius:var(--rs);border:1px solid var(--blubd);margin-top:10px}
+.finfo{display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--blubg);border-radius:var(--rs);border:1px solid var(--blubd);margin-top:10px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:99px;border:1px solid var(--bd2);background:var(--sur);cursor:pointer;font-size:12px;font-weight:500;transition:.12s;user-select:none}
 .chip input{display:none}
@@ -379,7 +379,7 @@ async function loadPdf(file){
     totP=pdfDoc.numPages;
     document.getElementById("dz").style.display="none";
     document.getElementById("fb").innerHTML=
-      '<div class="fbar"><span style="font-size:16px">📄</span>'+
+      '<div class="finfo"><span style="font-size:16px">📄</span>'+
       '<div style="flex:1"><div style="font-size:12px;font-weight:500;color:var(--blu)">'+esc(file.name)+'</div>'+
       '<div style="font-size:11px;color:var(--tx3);margin-top:1px">'+totP+' หน้า · '+(file.size/1024).toFixed(0)+' KB</div></div>'+
       '<button class="btn btn-sm" onclick="resetPdf()">เปลี่ยน</button></div>';
