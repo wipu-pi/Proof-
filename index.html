@@ -555,6 +555,9 @@ async function runProof(){
       setGo("กำลังตรวจสอบหน้า "+p+"/"+totP+"...");
       var ocrText=ocrToText(p);
       if(!ocrText.trim()) continue;
+      var dbIssues=runDBCheck(ocrText,p);
+      var dictIssues=runDictCheck(ocrText,p);
+      allIssues=allIssues.concat(dbIssues).concat(dictIssues);
 
       var promptLines=[
         "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
