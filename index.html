@@ -186,13 +186,13 @@ textarea:focus{border-color:var(--tx)}
             <div class="lbl">ประเภทการตรวจ</div>
             <div class="chips">
               <div class="chip on" onclick="toggleChip('cs',this)"><span>สะกดคำ</span></div>
-                <div class="chip on" onclick="toggleChip('cp',this)"><span>วรรคตอน</span></div>
-                <div class="chip on" onclick="toggleChip('cb2',this)"><span>คำแบรนด์</span></div>
-                <div class="chip on" onclick="toggleChip('cf',this)"><span>คำต้องห้าม</span></div>
-                <input type="checkbox" id="cs" checked style="display:none">
-                <input type="checkbox" id="cp" checked style="display:none">
-                <input type="checkbox" id="cb2" checked style="display:none">
-                <input type="checkbox" id="cf" checked style="display:none">
+              <div class="chip on" onclick="toggleChip('cp',this)"><span>วรรคตอน</span></div>
+              <div class="chip on" onclick="toggleChip('cb2',this)"><span>คำแบรนด์</span></div>
+              <div class="chip on" onclick="toggleChip('cf',this)"><span>คำต้องห้าม</span></div>
+              <input type="checkbox" id="cs" checked style="display:none">
+              <input type="checkbox" id="cp" checked style="display:none">
+              <input type="checkbox" id="cb2" checked style="display:none">
+              <input type="checkbox" id="cf" checked style="display:none">
             </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -343,10 +343,7 @@ textarea:focus{border-color:var(--tx)}
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc = "";
 
-// ── WORKER URL — update this after deploying Cloudflare Worker ─────────────
 var WORKER_URL = "https://proofth.wipu-pic.workers.dev";
-// To find your URL: run "wrangler deploy" and copy the URL it gives you
-// Example: var WORKER_URL = "https://proofth.wipu-pi.workers.dev";
 
 const DB = {brand:[], approved:[], forbidden:[]};
 let pdfDoc=null, pdfBytes=null;
@@ -361,7 +358,7 @@ function showPg(id){
   document.getElementById("ni-"+id).classList.add("on");
 }
 function toggleChip(id,el){el.classList.toggle("on");document.getElementById(id).checked=el.classList.contains("on")}
-  
+
 function onDrop(e){
   e.preventDefault();
   document.getElementById("dz").classList.remove("drag");
@@ -420,9 +417,8 @@ async function pageToImg(n){
   await page.render({canvasContext:cv.getContext("2d"),viewport:vp}).promise;
   return cv.toDataURL("image/png").split(",")[1];
 }
-  
-async function runVisionOCR(){
 
+async function runVisionOCR(){
   pageWords={};
   for(let p=1;p<=totP;p++){
     setOcr("Google Vision OCR หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
@@ -463,21 +459,25 @@ async function runVisionOCR(){
   }
 }
 
-function ocrToText(){
+function ocrToText(pageNum){
+  if(pageNum){
+    const words=pageWords[pageNum]||[];
+    const text=words.map(function(w){return w.text;}).join(" ");
+    return text.length>4000 ? text.slice(0,4000)+"..." : text;
+  }
   const parts=[];
   Object.keys(pageWords).forEach(function(p){
     const words=pageWords[p];
     parts.push("[Page "+p+"] "+words.map(function(w){return w.text;}).join(" "));
   });
   const full=parts.join(" | ");
-  // Limit to 4000 chars to stay within Gemini free tier token limits
-  return full.length>2000 ? full.slice(0,2000)+"..." : full;
+  return full.length>4000 ? full.slice(0,4000)+"..." : full;
 }
 
 async function callGemini(prompt){
   var res=await fetch(WORKER_URL+"/api/gemini",{
     method:"POST", headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
   });
   if(!res.ok){var t=await res.text();throw new Error("Gemini "+res.status+": "+t.slice(0,150));}
   var data=await res.json();
@@ -497,16 +497,13 @@ async function callTyphoon(prompt){
 }
 
 function mergeIssues(issA, issB){
-  // Mark issues from A as confirmed if B also found same original word
   var bOriginals=issB.map(function(i){return i.original;});
   var aOriginals=issA.map(function(i){return i.original;});
   var merged=[];
-  // Issues found by A
   issA.forEach(function(iss){
     var foundInB=bOriginals.indexOf(iss.original)>=0;
     merged.push(Object.assign({},iss,{confirmed:foundInB, source:"A"}));
   });
-  // Issues found only by B (not in A)
   issB.forEach(function(iss){
     var foundInA=aOriginals.indexOf(iss.original)>=0;
     if(!foundInA){
@@ -526,21 +523,18 @@ async function runProof(){
     await runVisionOCR();
     document.getElementById("ocr-wrap").style.display="none";
 
-    var ocrText=ocrToText();
     var checks=[];
     if(document.getElementById("cs").checked) checks.push("การสะกดคำและคำผิด");
     if(document.getElementById("cp").checked) checks.push("เครื่องหมายวรรคตอน");
     if(document.getElementById("cb2").checked&&DB.brand.length) checks.push("คำเฉพาะแบรนด์");
     if(document.getElementById("cf").checked&&DB.forbidden.length) checks.push("คำต้องห้าม");
 
-    // Build Thai-specific prompt
     var spellRules=document.getElementById("cs").checked?[
       "การสะกดคำ — ตรวจสอบตามพจนานุกรมราชบัณฑิตยสภา:",
-      "  • ไ- กับ ใ- : คำที่ใช้ ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใสใจ ใหน ใส่ ใส ใต้ ใฝ) ที่เหลือใช้ ไ-",
+      "  • ไ- กับ ใ- : คำที่ใช้ ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใส่ ใฝ่ ใหน ใจ ใฝ ใสใจ ใต้) ที่เหลือใช้ ไ-",
       "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก หนัง ฯลฯ — ห นำทำให้เสียงสูง",
       "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
-      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด/กระทัดรัด, ทะเลาะ/ทะเลา, เลขา/เลขาฯ, กระทรวง/กระทรวง",
-      "  • สระ อ กับ อ์ : สังเกตคำที่ออกเสียงต่างกัน",
+      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด/กระทัดรัด, ทะเลาะ/ทะเลา, เลขา/เลขาฯ",
       "  • ตัวสะกด : แม่กก กด กน กม กง กว กย กร"
     ].join("\n"):"";
 
@@ -549,77 +543,87 @@ async function runProof(){
       "  • ไม่ใช้ comma (,) แยกประโยคในภาษาไทย — ใช้การเว้นวรรคแทน",
       "  • มหัพภาค (.) ใช้เฉพาะตัวย่อ ไม่ใช้ตอนท้ายประโยค",
       "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
-      "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ พระบาทสมเด็จพระเจ้าอยู่หัวฯ",
+      "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ",
       "  • วงเล็บ () ใส่ space ด้านนอก ไม่ใส่ด้านใน"
     ].join("\n"):"";
 
-    var promptLines=[
-      "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
-      "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
-      "",
-      "== ข้อความจาก PDF (Google Vision OCR) ==",
-      ocrText,
-      "",
-      "== ประเภทที่ต้องตรวจ ==",
-      checks.join(", ")||"การสะกดคำ",
-      "",
-      spellRules,
-      punctRules,
-      "",
-      "== คลังคำขององค์กร ==",
-      "แบรนด์/ชื่อเฉพาะ (ต้องสะกดตรงทุกตัวอักษร): "+(DB.brand.join(", ")||"ไม่มี"),
-      "คำอนุมัติ (ห้ามแก้แม้ดูผิด): "+(DB.approved.join(", ")||"ไม่มี"),
-      "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
-      "",
-      "== กฎสำคัญ ==",
-      "1. original ต้องคัดลอกมาจากข้อความ OCR ด้านบนทุกตัวอักษร — ใช้ค้นหาตำแหน่งบน PDF",
-      "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
-      "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
-      "4. ถ้า OCR อ่านผิดพลาด (เช่น ตัวอักษรเป็นสัญลักษณ์แปลก) ให้ข้ามไป",
-      "5. เรียงลำดับ issues ตามหน้า (page) จากน้อยไปมาก",
-      "",
-      "== รูปแบบการตอบ ==",
-      'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown ห้ามมีข้อความนำหน้าหรือท้าย:',
-      '{"corrected":"ย่อหน้าแรกที่แก้ไขแล้ว (ไม่เกิน 200 คำ)","issues":[{"type":"spelling","original":"คำผิดในเอกสาร","corrected":"คำที่ถูกต้อง","explanation":"อธิบายสั้นๆ ว่าผิดอย่างไร","page":1}],"summary":"สรุปภาพรวม"}',
-      "type ที่ใช้ได้: spelling | punctuation | brand | forbidden",
-      "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
-    ].filter(function(l){return l!==undefined&&l!==null;});
-    var prompt=promptLines.join("\n");
+    var allIssues=[], allCorr=[];
 
-    var raw="", rawB="";
+    for(var p=1;p<=totP;p++){
+      setGo("กำลังตรวจสอบหน้า "+p+"/"+totP+"...");
+      var ocrText=ocrToText(p);
+      if(!ocrText.trim()) continue;
 
-    if(model==="gemini"){
-      setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
-      raw=await callGemini(prompt);
-      var result=parseJ(raw);
-      issues=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true});});
-      corrText=result.corrected||"";
+      var promptLines=[
+        "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
+        "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
+        "",
+        "== ข้อความจาก PDF หน้า "+p+" (Google Vision OCR) ==",
+        ocrText,
+        "",
+        "== ประเภทที่ต้องตรวจ ==",
+        checks.join(", ")||"การสะกดคำ",
+        "",
+        spellRules,
+        punctRules,
+        "",
+        "== คลังคำขององค์กร ==",
+        "แบรนด์/ชื่อเฉพาะ (ต้องสะกดตรงทุกตัวอักษร): "+(DB.brand.join(", ")||"ไม่มี"),
+        "คำอนุมัติ (ห้ามแก้แม้ดูผิด): "+(DB.approved.join(", ")||"ไม่มี"),
+        "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
+        "",
+        "== กฎสำคัญ ==",
+        "1. original ต้องคัดลอกมาจากข้อความ OCR ด้านบนทุกตัวอักษร",
+        "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
+        "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
+        "4. ถ้า OCR อ่านผิดพลาด (เช่น ตัวอักษรเป็นสัญลักษณ์แปลก) ให้ข้ามไป",
+        "",
+        "== รูปแบบการตอบ ==",
+        'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown ห้ามมีข้อความนำหน้าหรือท้าย:',
+        '{"corrected":"ข้อความหน้านี้ที่แก้ไขแล้ว","issues":[{"type":"spelling","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย","page":'+p+'}],"summary":"สรุป"}',
+        "type ที่ใช้ได้: spelling | punctuation | brand | forbidden",
+        "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
+      ].filter(function(l){return l!==undefined&&l!==null;});
+      var prompt=promptLines.join("\n");
 
-    } else if(model==="typhoon"){
-      setGo("กำลังส่งให้ Typhoon ตรวจสอบ...");
-      raw=await callTyphoon(prompt);
-      var result=parseJ(raw);
-      issues=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true});});
-      corrText=result.corrected||"";
+      var raw="", rawB="";
 
-    } else if(model==="both"){
-      setGo("กำลังส่งให้ Gemini ตรวจสอบ...");
-      raw=await callGemini(prompt);
-      setGo("กำลังส่งให้ Typhoon ตรวจสอบ...");
-      rawB=await callTyphoon(prompt);
-      var resA=parseJ(raw);
-      var resB=parseJ(rawB);
-      var issA=Array.isArray(resA.issues)?resA.issues:[];
-      var issB=Array.isArray(resB.issues)?resB.issues:[];
-      issues=mergeIssues(issA,issB);
-      corrText=resA.corrected||resB.corrected||"";
+      if(model==="gemini"){
+        raw=await callGemini(prompt);
+        var result=parseJ(raw);
+        var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
+        allIssues=allIssues.concat(pi);
+        allCorr.push(result.corrected||"");
+
+      } else if(model==="typhoon"){
+        raw=await callTyphoon(prompt);
+        var result=parseJ(raw);
+        var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
+        allIssues=allIssues.concat(pi);
+        allCorr.push(result.corrected||"");
+
+      } else if(model==="both"){
+        setGo("หน้า "+p+"/"+totP+" — Gemini...");
+        raw=await callGemini(prompt);
+        setGo("หน้า "+p+"/"+totP+" — Typhoon...");
+        rawB=await callTyphoon(prompt);
+        var resA=parseJ(raw);
+        var resB=parseJ(rawB);
+        var issA=Array.isArray(resA.issues)?resA.issues:[];
+        var issB=Array.isArray(resB.issues)?resB.issues:[];
+        var merged=mergeIssues(issA,issB).map(function(i){return Object.assign({},i,{page:p});});
+        allIssues=allIssues.concat(merged);
+        allCorr.push(resA.corrected||resB.corrected||"");
+      }
     }
+
+    issues=allIssues;
+    corrText=allCorr.join("\n\n");
 
     document.getElementById("uv").style.display="none";
     var pv=document.getElementById("pv");
     pv.style.display="flex"; pv.style.flexDirection="column";
     curP=1; focIdx=-1; curFilter="all";
-    // Reset filter buttons
     document.querySelectorAll(".ftag").forEach(function(t){t.classList.remove("on");});
     var allTag=document.querySelector(".ftag-all");if(allTag)allTag.classList.add("on");
     await renderPage(curP);
@@ -631,7 +635,6 @@ async function runProof(){
   }
   btn.disabled=false; sp.style.display="none"; setGo("");
 }
-
 
 function parseJ(raw){
   var s=raw.replace(/^```json\s*/,"").replace(/^```\s*/,"").replace(/\s*```$/,"").trim();
@@ -723,20 +726,16 @@ function findGVRects(words,s,cW,cH){
   var scX=cW/imgW, scY=cH/imgH;
   var out=[];
   function mk(w){return{x:w.x*scX,y:w.y*scY,w:Math.max(w.w*scX,6),h:Math.max(w.h*scY,6)};}
-  // P1: exact match
   for(var i=0;i<words.length;i++){if(words[i].text===s){out.push(mk(words[i]));if(out.length>=5)return out;}}
   if(out.length) return out;
-  // P2: word contains search string
   for(var i=0;i<words.length;i++){if(words[i].text.includes(s)){out.push(mk(words[i]));if(out.length>=5)return out;}}
   if(out.length) return out;
-  // P3: multi-word match — only merge words on the SAME line (similar y)
   var matches=[];
   for(var i=0;i<words.length;i++){
     var wt=words[i].text.trim();
     if(wt.length>=2&&s.includes(wt)) matches.push(i);
   }
   if(matches.length>0&&matches.length<=8){
-    // Group by line: words within 60% of word height of each other
     var groups=[];
     matches.forEach(function(idx){
       var w=words[idx];
@@ -746,7 +745,6 @@ function findGVRects(words,s,cW,cH){
       }
       if(!placed) groups.push([idx]);
     });
-    // Pick the largest group
     groups.sort(function(a,b){return b.length-a.length;});
     var rects=groups[0].map(function(idx){return mk(words[idx]);});
     if(rects.length===1) return rects;
@@ -759,8 +757,6 @@ function findGVRects(words,s,cW,cH){
   return out;
 }
 
-
-// ── FILTER ─────────────────────────────────────────────────────────────────
 function setFilter(type, el){
   curFilter=type;
   document.querySelectorAll(".ftag").forEach(function(t){t.classList.remove("on");});
@@ -777,7 +773,7 @@ function renderIssues(){
     renderCorr();return;
   }
   const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
-    body.innerHTML=filtered.map(function(iss){
+  body.innerHTML=filtered.map(function(iss){
     var i=issues.indexOf(iss);
     var bc=(bm[iss.type]||["bsp",iss.type])[0];
     var bl=(bm[iss.type]||["bsp",iss.type])[1];
@@ -865,7 +861,7 @@ async function runTxt(){
   try{
     const res=await fetch(WORKER_URL+"/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:2048}})
+      body:JSON.stringify({contents:[{parts:[{text:promptLines.join("\n")}]}],generationConfig:{temperature:0.1,maxOutputTokens:4096}})
     });
     const data=await res.json();
     if(data.error) throw new Error(data.error.message);
@@ -951,15 +947,12 @@ function updDB(){
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
 
-
-// ── DOWNLOAD PDF (highlighted) — browser-side using pdf-lib CDN ───────────
 async function downloadPdf(){
   var btn=document.getElementById("btn-dlpdf");
   btn.textContent="กำลังสร้าง..."; btn.disabled=true;
   try{
     if(!pdfBytes) throw new Error("กรุณาอัพโหลด PDF ก่อน");
     if(typeof PDFLib==="undefined") throw new Error("pdf-lib ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่");
-
     var pdfDoc=await PDFLib.PDFDocument.load(pdfBytes);
     var pages=pdfDoc.getPages();
     var colorMap={
@@ -968,7 +961,6 @@ async function downloadPdf(){
       brand:      [0.10,0.33,0.88],
       forbidden:  [0.63,0.00,0.13]
     };
-
     issues.forEach(function(iss){
       var pageIdx=(iss.page||1)-1;
       if(pageIdx<0||pageIdx>=pages.length) return;
@@ -981,8 +973,6 @@ async function downloadPdf(){
       var col=colorMap[iss.type]||colorMap.spelling;
       var s=(iss.original||"").trim();
       if(!s) return;
-
-      // Find word rects
       var rects=[];
       for(var i=0;i<words.length;i++){
         if(words[i].text===s){rects.push(words[i]);if(rects.length>=5)break;}
@@ -999,7 +989,6 @@ async function downloadPdf(){
           }
         }
       }
-      // Merge to single bbox
       if(rects.length>1){
         var mx=rects[0].x,my=rects[0].y,mr=rects[0].x+rects[0].w,mb=rects[0].y+rects[0].h;
         rects.forEach(function(r){mx=Math.min(mx,r.x);my=Math.min(my,r.y);mr=Math.max(mr,r.x+r.w);mb=Math.max(mb,r.y+r.h);});
@@ -1007,7 +996,7 @@ async function downloadPdf(){
       }
       rects.forEach(function(r){
         var x=r.x*scX;
-        var y=ph-(r.y*scY)-(r.h*scY); // flip Y — PDF origin is bottom-left
+        var y=ph-(r.y*scY)-(r.h*scY);
         var w=r.w*scX, h=r.h*scY;
         if(w<2||h<2) return;
         page.drawRectangle({
@@ -1019,7 +1008,6 @@ async function downloadPdf(){
         });
       });
     });
-
     var outBytes=await pdfDoc.save();
     var blob=new Blob([outBytes],{type:"application/pdf"});
     var url=URL.createObjectURL(blob);
@@ -1030,11 +1018,9 @@ async function downloadPdf(){
   btn.textContent="⬇ PDF"; btn.disabled=false;
 }
 
-// ── DOWNLOAD EXCEL REPORT ──────────────────────────────────────────────────
 function downloadExcel(){
   if(!issues.length){alert("ยังไม่มีข้อผิดพลาดให้ดาวน์โหลด");return;}
   var typeMap={spelling:"สะกดคำ",punctuation:"วรรคตอน",brand:"แบรนด์",forbidden:"ต้องห้าม"};
-  // Build CSV (opens in Excel)
   var rows=[["หน้า","ประเภท","คำผิด","คำที่ถูก","คำอธิบาย","โมเดล"]];
   issues.forEach(function(iss){
     var modelNote="";
@@ -1050,7 +1036,6 @@ function downloadExcel(){
       modelNote
     ]);
   });
-  // UTF-8 BOM for Thai in Excel
   var csv="﻿"+rows.map(function(r){
     return r.map(function(cell){
       var s=String(cell).replace(/"/g,'""');
@@ -1066,7 +1051,6 @@ function downloadExcel(){
 
 ["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
 updDB();
-
 </script>
 </body>
 </html>
