@@ -185,10 +185,14 @@ textarea:focus{border-color:var(--tx)}
           <div>
             <div class="lbl">ประเภทการตรวจ</div>
             <div class="chips">
-              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cs" checked><span>สะกดคำ</span></label>
-              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cp" checked><span>วรรคตอน</span></label>
-              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cb2" checked><span>คำแบรนด์</span></label>
-              <label class="chip on" onclick="tc(this)"><input type="checkbox" id="cf" checked><span>คำต้องห้าม</span></label>
+              <div class="chip on" onclick="toggleChip('cs',this)"><span>สะกดคำ</span></div>
+                <div class="chip on" onclick="toggleChip('cp',this)"><span>วรรคตอน</span></div>
+                <div class="chip on" onclick="toggleChip('cb2',this)"><span>คำแบรนด์</span></div>
+                <div class="chip on" onclick="toggleChip('cf',this)"><span>คำต้องห้าม</span></div>
+                <input type="checkbox" id="cs" checked style="display:none">
+                <input type="checkbox" id="cp" checked style="display:none">
+                <input type="checkbox" id="cb2" checked style="display:none">
+                <input type="checkbox" id="cf" checked style="display:none">
             </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
