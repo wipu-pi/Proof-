@@ -356,8 +356,8 @@ function showPg(id){
   document.getElementById("pg-"+id).classList.add("on");
   document.getElementById("ni-"+id).classList.add("on");
 }
-function tc(el){el.classList.toggle("on");el.querySelector("input").checked=el.classList.contains("on")}
-
+function toggleChip(id,el){el.classList.toggle("on");document.getElementById(id).checked=el.classList.contains("on")}
+  
 function onDrop(e){
   e.preventDefault();
   document.getElementById("dz").classList.remove("drag");
