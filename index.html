@@ -350,6 +350,8 @@ let pdfDoc=null, pdfBytes=null;
 let issues=[], corrText="", lastTxt="";
 let curP=1, totP=0, focIdx=-1;
 let pageWords={};
+  var thaiDict = new Set();
+var dictReady = false;
 
 function showPg(id){
   document.querySelectorAll(".page").forEach(p=>p.classList.remove("on"));
@@ -1049,8 +1051,59 @@ function downloadExcel(){
   URL.revokeObjectURL(url);
 }
 
+function runDBCheck(ocrText, pageNum){
+  var found=[];
+  var words=ocrText.split(/\s+/);
+  DB.forbidden.forEach(function(fw){
+    words.forEach(function(w){
+      if(w===fw) found.push({type:"forbidden",original:fw,corrected:"",explanation:"คำต้องห้าม",page:pageNum,confirmed:true,source:"db"});
+    });
+  });
+  DB.brand.forEach(function(bw){
+    words.forEach(function(w){
+      if(w.toLowerCase()===bw.toLowerCase()&&w!==bw)
+        found.push({type:"brand",original:w,corrected:bw,explanation:"สะกดผิดจากชื่อแบรนด์",page:pageNum,confirmed:true,source:"db"});
+    });
+  });
+  return found;
+}
+
+function runDictCheck(ocrText, pageNum){
+  if(!dictReady||thaiDict.size===0) return [];
+  var found=[], seen=new Set();
+  var words=ocrText.split(/\s+/);
+  words.forEach(function(w){
+    var t=w.trim();
+    if(!t||t.length<2) return;
+    if(/^[0-9๐-๙]+$/.test(t)) return;
+    if(/^[a-zA-Z]/.test(t)) return;
+    if(seen.has(t)) return;
+    if(DB.approved.indexOf(t)>=0) return;
+    if(DB.brand.indexOf(t)>=0) return;
+    if(!thaiDict.has(t)){
+      seen.add(t);
+      found.push({type:"spelling",original:t,corrected:"",explanation:"ไม่พบในพจนานุกรม — อาจสะกดผิด",page:pageNum,confirmed:false,source:"dict"});
+    }
+  });
+  return found;
+}
+
+async function loadThaiDict(){
+  try{
+    var res=await fetch("https://raw.githubusercontent.com/PyThaiNLP/pythainlp/dev/pythainlp/corpus/words_th.txt");
+    if(!res.ok) throw new Error("dict load failed");
+    var text=await res.text();
+    text.split("\n").forEach(function(w){
+      var t=w.trim(); if(t) thaiDict.add(t);
+    });
+    dictReady=true;
+    console.log("Thai dict loaded: "+thaiDict.size+" words");
+  }catch(e){
+    console.warn("Thai dict unavailable:", e.message);
+    dictReady=false;
+  }
+}
+
+loadThaiDict();
 ["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
 updDB();
-</script>
-</body>
-</html>
