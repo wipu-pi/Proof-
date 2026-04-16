@@ -443,7 +443,7 @@ async function runVisionOCR(){
     const imgB64=await pageToImg(p);
     const res=await fetch(WORKER_URL+"/api/vision",{
       method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"DOCUMENT_TEXT_DETECTION"}]}]})
+      body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"TEXT_DETECTION"}]}]})
     });
     if(!res.ok) throw new Error("Vision API "+res.status);
     const data=await res.json();
