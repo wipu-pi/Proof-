@@ -189,10 +189,12 @@ textarea:focus{border-color:var(--tx)}
               <div class="chip on" onclick="toggleChip('cp',this)"><span>วรรคตอน</span></div>
               <div class="chip on" onclick="toggleChip('cb2',this)"><span>คำแบรนด์</span></div>
               <div class="chip on" onclick="toggleChip('cf',this)"><span>คำต้องห้าม</span></div>
+              <div class="chip" onclick="toggleChip('cd',this)"><span>พจนานุกรม</span></div>
               <input type="checkbox" id="cs" checked style="display:none">
               <input type="checkbox" id="cp" checked style="display:none">
               <input type="checkbox" id="cb2" checked style="display:none">
               <input type="checkbox" id="cf" checked style="display:none">
+              <input type="checkbox" id="cd" style="display:none">
             </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -562,7 +564,7 @@ async function runProof(){
       var ocrText=ocrToText(p);
       if(!ocrText.trim()) continue;
       var dbIssues=runDBCheck(ocrText,p);
-      var dictIssues=runDictCheck(ocrText,p);
+      var dictIssues=document.getElementById("cd").checked ? runDictCheck(ocrText,p) : [];
       allIssues=allIssues.concat(dbIssues).concat(dictIssues);
 
       var promptLines=[
