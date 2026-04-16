@@ -173,6 +173,11 @@ textarea:focus{border-color:var(--tx)}
           <input type="file" id="fi" accept=".pdf" onchange="onFile(event)">
           <div id="fb"></div>
           <div id="ust"></div>
+          <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
+            <div class="lbl" style="margin:0;line-height:2">วิธีอ่าน PDF:</div>
+            <div class="chip on" id="chip-vision" onclick="switchOcrMode('vision',this)"><span>🔍 Google Vision</span></div>
+            <div class="chip" id="chip-pdfjs" onclick="switchOcrMode('pdfjs',this)"><span>📄 PDF.js</span></div>
+          </div>
           <div class="ocr-wrap" id="ocr-wrap">
             <div id="ocr-lbl" style="font-size:11px;color:var(--blu)">กำลังรัน Google Vision OCR...</div>
             <div class="ocr-track"><div class="ocr-fill" id="ocr-fill"></div></div>
@@ -375,6 +380,13 @@ function showPg(id){
   document.getElementById("ni-"+id).classList.add("on");
 }
 function toggleChip(id,el){el.classList.toggle("on");document.getElementById(id).checked=el.classList.contains("on")}
+  function switchOcrMode(mode,el){
+  document.getElementById("chip-vision").classList.toggle("on",mode==="vision");
+  document.getElementById("chip-pdfjs").classList.toggle("on",mode==="pdfjs");
+}
+function getOcrMode(){
+  return document.getElementById("chip-pdfjs").classList.contains("on") ? "pdfjs" : "vision";
+}
 
 function onDrop(e){
   e.preventDefault();
@@ -384,6 +396,38 @@ function onDrop(e){
 }
 function onFile(e){const f=e.target.files[0];if(f)loadPdf(f);e.target.value="";}
 
+async function extractPdfJsPage(pageNum){
+  const page = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({scale:1});
+  const textContent = await page.getTextContent();
+  const words = [];
+  textContent.items.forEach(function(item){
+    if(!item.str || !item.str.trim()) return;
+    const tx = item.transform;
+    const x = tx[4];
+    const y = viewport.height - tx[5] - (item.height||12);
+    const w = item.width||20;
+    const h = item.height||12;
+    const parts = item.str.split(/\s+/);
+    let offsetX = x;
+    parts.forEach(function(part){
+      if(!part.trim()) return;
+      const partW = w * (part.length / item.str.length);
+      words.push({
+        text: part,
+        x: offsetX,
+        y: y,
+        w: partW,
+        h: h,
+        imgW: viewport.width,
+        imgH: viewport.height
+      });
+      offsetX += partW;
+    });
+  });
+  return words;
+}
+  
 async function loadPdf(file){
   if(!file.name.toLowerCase().endsWith(".pdf")){setSt("e","กรุณาอัพโหลดไฟล์ PDF เท่านั้น");return;}
   setSt("i","กำลังโหลด...");
@@ -438,10 +482,50 @@ async function pageToImg(n){
 
 async function runVisionOCR(){
   pageWords={};
+  const usePdfJs = getOcrMode()==="pdfjs";
   for(let p=1;p<=totP;p++){
-    setOcr("Google Vision OCR หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
+    setOcr((usePdfJs?"PDF.js":"Google Vision")+" หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
+    if(usePdfJs){
+      pageWords[p] = await extractPdfJsPage(p);
+      setOcr("PDF.js หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
+      continue;
+    }
     const imgB64=await pageToImg(p);
     const res=await fetch(WORKER_URL+"/api/vision",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"DOCUMENT_TEXT_DETECTION"}]}]})
+    });
+    if(!res.ok) throw new Error("Vision API "+res.status);
+    const data=await res.json();
+    if(data.error) throw new Error("Vision: "+data.error.message);
+    const words=[];
+    const pages=(data.responses[0]||{}).fullTextAnnotation
+      ? data.responses[0].fullTextAnnotation.pages : [];
+    for(const pg of pages){
+      for(const block of(pg.blocks||[])){
+        for(const para of(block.paragraphs||[])){
+          for(const word of(para.words||[])){
+            const text=(word.symbols||[]).map(function(s){return s.text;}).join("");
+            if(!text.trim()) continue;
+            const verts=(word.boundingBox||{}).vertices||[];
+            if(verts.length<4) continue;
+            const xs=verts.map(function(v){return v.x||0;});
+            const ys=verts.map(function(v){return v.y||0;});
+            words.push({
+              text:text,
+              x:Math.min.apply(null,xs), y:Math.min.apply(null,ys),
+              w:Math.max.apply(null,xs)-Math.min.apply(null,xs),
+              h:Math.max.apply(null,ys)-Math.min.apply(null,ys),
+              imgW:pg.width||1000, imgH:pg.height||1414
+            });
+          }
+        }
+      }
+    }
+    pageWords[p]=words;
+    setOcr("Google Vision OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
+  }
+}
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"TEXT_DETECTION"}]}]})
     });
