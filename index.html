@@ -1113,7 +1113,7 @@ async function loadThaiDict(){
     if(!res.ok) throw new Error("dict load failed");
     var text=await res.text();
     text.split("\n").forEach(function(w){
-      var t=w.trim(); if(t) thaiDict.add(t);
+      var t=w.split("\t")[0].trim(); if(t) thaiDict.add(t);
     });
     dictReady=true;
     console.log("Thai dict loaded: "+thaiDict.size+" words");
