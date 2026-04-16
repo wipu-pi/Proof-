@@ -408,20 +408,14 @@ async function extractPdfJsPage(pageNum){
     const y = viewport.height - tx[5] - (item.height||12);
     const w = item.width||20;
     const h = item.height||12;
-    const parts = item.str.split(/\s+/);
+    // Always push the full item as one word (needed for Thai phrases with no spaces).
+    // Also push space-split sub-parts so single Latin/digit tokens match too.
+    words.push({text:item.str.trim(), x:x, y:y, w:w, h:h, imgW:viewport.width, imgH:viewport.height});
+    const parts = item.str.split(/\s+/).filter(function(p){return p.trim()&&p!==item.str.trim();});
     let offsetX = x;
     parts.forEach(function(part){
-      if(!part.trim()) return;
       const partW = w * (part.length / item.str.length);
-      words.push({
-        text: part,
-        x: offsetX,
-        y: y,
-        w: partW,
-        h: h,
-        imgW: viewport.width,
-        imgH: viewport.height
-      });
+      words.push({text:part, x:offsetX, y:y, w:partW, h:h, imgW:viewport.width, imgH:viewport.height});
       offsetX += partW;
     });
   });
@@ -494,40 +488,6 @@ async function runVisionOCR(){
     const res=await fetch(WORKER_URL+"/api/vision",{
       method:"POST", headers:{"Content-Type":"application/json"},
       body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"DOCUMENT_TEXT_DETECTION"}]}]})
-    });
-    if(!res.ok) throw new Error("Vision API "+res.status);
-    const data=await res.json();
-    if(data.error) throw new Error("Vision: "+data.error.message);
-    const words=[];
-    const pages=(data.responses[0]||{}).fullTextAnnotation
-      ? data.responses[0].fullTextAnnotation.pages : [];
-    for(const pg of pages){
-      for(const block of(pg.blocks||[])){
-        for(const para of(block.paragraphs||[])){
-          for(const word of(para.words||[])){
-            const text=(word.symbols||[]).map(function(s){return s.text;}).join("");
-            if(!text.trim()) continue;
-            const verts=(word.boundingBox||{}).vertices||[];
-            if(verts.length<4) continue;
-            const xs=verts.map(function(v){return v.x||0;});
-            const ys=verts.map(function(v){return v.y||0;});
-            words.push({
-              text:text,
-              x:Math.min.apply(null,xs), y:Math.min.apply(null,ys),
-              w:Math.max.apply(null,xs)-Math.min.apply(null,xs),
-              h:Math.max.apply(null,ys)-Math.min.apply(null,ys),
-              imgW:pg.width||1000, imgH:pg.height||1414
-            });
-          }
-        }
-      }
-    }
-    pageWords[p]=words;
-    setOcr("Google Vision OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
-  }
-}
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({requests:[{image:{content:imgB64},features:[{type:"TEXT_DETECTION"}]}]})
     });
     if(!res.ok) throw new Error("Vision API "+res.status);
     const data=await res.json();
@@ -658,12 +618,13 @@ async function runProof(){
       var dbIssues=runDBCheck(ocrText,p);
       var mode=document.getElementById("proof-mode").value;
       var dictIssues=(mode==="dict"||mode==="both") ? runDictCheck(ocrText,p) : [];
+      allIssues=allIssues.concat(dbIssues).concat(dictIssues);
 
       var promptLines=[
         "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
         "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
         "",
-        "== ข้อความจาก PDF หน้า "+p+" (Google Vision OCR) ==",
+        "== ข้อความจาก PDF หน้า "+p+" ("+(getOcrMode()==="pdfjs"?"PDF.js":"Google Vision OCR")+") ==",
         ocrText,
         "",
         "== ประเภทที่ต้องตรวจ ==",
@@ -690,7 +651,7 @@ async function runProof(){
         "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
       ].filter(function(l){return l!==undefined&&l!==null;});
       var prompt=promptLines.join("\n");
-      if(mode==="dict"){allCorr.push("");continue;}
+      if(mode==="dict"){allCorr.push(ocrText);continue;}
       var raw="", rawB="";
 
       if(model==="gemini"){
