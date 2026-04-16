@@ -199,6 +199,14 @@ textarea:focus{border-color:var(--tx)}
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
             <div>
+              <div style="margin-bottom:10px">
+  <div class="lbl">โหมดการตรวจ</div>
+  <select class="msel" id="proof-mode">
+    <option value="ai">🤖 AI เท่านั้น</option>
+    <option value="dict">📚 พจนานุกรมเท่านั้น</option>
+    <option value="both">🤖📚 AI + พจนานุกรม</option>
+  </select>
+</div>
               <div class="lbl">AI Model</div>
               <select class="msel" id="model-sel">
                 <option value="gemini">🤖 Gemini 2.5 Flash</option>
@@ -564,8 +572,8 @@ async function runProof(){
       var ocrText=ocrToText(p);
       if(!ocrText.trim()) continue;
       var dbIssues=runDBCheck(ocrText,p);
-      var dictIssues=document.getElementById("cd").checked ? runDictCheck(ocrText,p) : [];
-      allIssues=allIssues.concat(dbIssues).concat(dictIssues);
+      var mode=document.getElementById("proof-mode").value;
+      var dictIssues=(mode==="dict"||mode==="both") ? runDictCheck(ocrText,p) : [];
 
       var promptLines=[
         "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
@@ -598,7 +606,7 @@ async function runProof(){
         "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
       ].filter(function(l){return l!==undefined&&l!==null;});
       var prompt=promptLines.join("\n");
-
+      if(mode==="dict"){allCorr.push("");continue;}
       var raw="", rawB="";
 
       if(model==="gemini"){
