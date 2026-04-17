@@ -176,7 +176,8 @@ textarea:focus{border-color:var(--tx)}
           <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
             <div class="lbl" style="margin:0;line-height:2">วิธีอ่าน PDF:</div>
             <div class="chip on" id="chip-vision" onclick="switchOcrMode('vision',this)"><span>🔍 Google Vision</span></div>
-            <div class="chip" id="chip-pdfjs" onclick="switchOcrMode('pdfjs',this)"><span>📄 PDF.js</span></div>
+            <div class="chip" id="chip-typhoon" onclick="switchOcrMode('typhoon',this)"><span>🇹🇭 Typhoon OCR</span></div>
+            <div class="chip" id="chip-pdfjs" onclick="switchOcrMode('pdfjs',this)" title="เหมาะสำหรับ PDF Unicode เท่านั้น"><span>📄 PDF.js</span></div>
           </div>
           <div class="ocr-wrap" id="ocr-wrap">
             <div id="ocr-lbl" style="font-size:11px;color:var(--blu)">กำลังรัน Google Vision OCR...</div>
@@ -380,12 +381,15 @@ function showPg(id){
   document.getElementById("ni-"+id).classList.add("on");
 }
 function toggleChip(id,el){el.classList.toggle("on");document.getElementById(id).checked=el.classList.contains("on")}
-  function switchOcrMode(mode,el){
+function switchOcrMode(mode,el){
   document.getElementById("chip-vision").classList.toggle("on",mode==="vision");
+  document.getElementById("chip-typhoon").classList.toggle("on",mode==="typhoon");
   document.getElementById("chip-pdfjs").classList.toggle("on",mode==="pdfjs");
 }
 function getOcrMode(){
-  return document.getElementById("chip-pdfjs").classList.contains("on") ? "pdfjs" : "vision";
+  if(document.getElementById("chip-typhoon").classList.contains("on")) return "typhoon";
+  if(document.getElementById("chip-pdfjs").classList.contains("on")) return "pdfjs";
+  return "vision";
 }
 
 function onDrop(e){
@@ -476,12 +480,28 @@ async function pageToImg(n){
 
 async function runVisionOCR(){
   pageWords={};
-  const usePdfJs = getOcrMode()==="pdfjs";
+  const mode=getOcrMode();
   for(let p=1;p<=totP;p++){
-    setOcr((usePdfJs?"PDF.js":"Google Vision")+" หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
-    if(usePdfJs){
+    const modeLabel=mode==="typhoon"?"Typhoon OCR":mode==="pdfjs"?"PDF.js":"Google Vision";
+    setOcr(modeLabel+" หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
+    if(mode==="pdfjs"){
       pageWords[p] = await extractPdfJsPage(p);
       setOcr("PDF.js หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
+      continue;
+    }
+    if(mode==="typhoon"){
+      const imgB64=await pageToImg(p);
+      const res=await fetch(WORKER_URL+"/api/typhoon-ocr",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({image:imgB64, page:p})
+      });
+      if(!res.ok) throw new Error("Typhoon OCR "+res.status);
+      const data=await res.json();
+      if(data.error) throw new Error("Typhoon OCR: "+data.error);
+      // Typhoon returns markdown text — convert to word-like tokens for highlighting
+      const rawText=(data.markdown||data.text||data.result||"").trim();
+      pageWords[p]=typhoonTextToWords(rawText, p);
+      setOcr("Typhoon OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
       continue;
     }
     const imgB64=await pageToImg(p);
@@ -519,6 +539,33 @@ async function runVisionOCR(){
     pageWords[p]=words;
     setOcr("Google Vision OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
   }
+}
+
+// Converts Typhoon OCR markdown output into word tokens with estimated positions
+// for highlight overlay. Since Typhoon returns plain text (no bounding boxes),
+// we create a synthetic grid layout so the sidebar items still link to the page.
+function typhoonTextToWords(markdown, pageNum){
+  var lines = markdown.split("\n").filter(function(l){return l.trim();});
+  var words = [];
+  var imgW=1000, imgH=1414;
+  var lineH = Math.max(18, imgH / Math.max(lines.length,1));
+  lines.forEach(function(line, li){
+    var tokens = line.trim().split(/\s+/);
+    var colW = tokens.length ? imgW / tokens.length : imgW;
+    tokens.forEach(function(tok, ti){
+      if(!tok.trim()) return;
+      words.push({
+        text: tok,
+        x: ti * colW,
+        y: li * lineH,
+        w: Math.max(colW * 0.9, 30),
+        h: lineH * 0.85,
+        imgW: imgW,
+        imgH: imgH
+      });
+    });
+  });
+  return words;
 }
 
 function ocrToText(pageNum){
@@ -624,7 +671,7 @@ async function runProof(){
         "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
         "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
         "",
-        "== ข้อความจาก PDF หน้า "+p+" ("+(getOcrMode()==="pdfjs"?"PDF.js":"Google Vision OCR")+") ==",
+        "== ข้อความจาก PDF หน้า "+p+" ("+(getOcrMode()==="typhoon"?"Typhoon OCR":getOcrMode()==="pdfjs"?"PDF.js":"Google Vision OCR")+") ==",
         ocrText,
         "",
         "== ประเภทที่ต้องตรวจ ==",
