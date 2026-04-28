@@ -654,6 +654,25 @@ async function callTyphoon(prompt){
   return ((data.choices||[])[0]||{}).message ? data.choices[0].message.content : "";
 }
 
+// Client-side post-process: remove issues that are clearly OCR split-word artifacts
+// These slip through even with prompt instructions, so we filter defensively.
+function filterOcrNoise(issues){
+  return issues.filter(function(iss){
+    var orig=(iss.original||"").trim();
+    var expl=(iss.explanation||"").toLowerCase();
+    // Skip if original contains a space between Thai chars — classic OCR word-split
+    if(/[฀-๿]\s+[฀-๿]/.test(orig)) return false;
+    // Skip if explanation says "เขียนติดกัน" or "ติดกัน"
+    if(expl.includes("ติดกัน")) return false;
+    // Skip if original is a single Thai character (too short to be meaningful)
+    if(orig.length<=1) return false;
+    // Skip if original looks like pure OCR garbage (>40% non-Thai non-ASCII)
+    var thaiOrAlpha=(orig.match(/[฀-๿ -~]/g)||[]).length;
+    if(orig.length>2 && thaiOrAlpha/orig.length < 0.6) return false;
+    return true;
+  });
+}
+
 function mergeIssues(issA, issB){
   var bOriginals=issB.map(function(i){return i.original;});
   var aOriginals=issA.map(function(i){return i.original;});
@@ -771,10 +790,12 @@ async function runProof(){
         "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
         "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
         // F: OCR noise detection
-        "4. ข้าม token ที่มีลักษณะ OCR noise: มีสัญลักษณ์แปลก (?, ?, ?, ?), ตัวเลขติดกับอักษรไทย (เช่น 2ก, ม3), หรือสั้นกว่า 2 ตัวอักษร",
+        "4. ข้าม token ที่มีลักษณะ OCR noise: มีสัญลักษณ์แปลก, ตัวเลขติดกับอักษรไทย (เช่น 2ก, ม3), หรือสั้นกว่า 2 ตัวอักษร",
+        "5. ห้ามรายงานกรณีที่ OCR แยกคำติดกันด้วย space เช่น 'เครน ยก' 'คง ที่' 'ยก กล่อง'",
+        "   เพราะนี่คือ OCR splitting ไม่ใช่การสะกดผิด — ถ้า original มี space อยู่ตรงกลางคำไทย ให้ข้ามทั้งหมด",
         // B: confidence threshold
-        "5. รายงานเฉพาะข้อผิดพลาดที่มั่นใจ 90% ขึ้นไปเท่านั้น ถ้าไม่แน่ใจให้ข้าม",
-        "6. ถ้าคำนั้นอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
+        "6. รายงานเฉพาะข้อผิดพลาดที่มั่นใจ 90% ขึ้นไปเท่านั้น ถ้าไม่แน่ใจให้ข้าม",
+        "7. ถ้าคำนั้นอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
         "",
         "== รูปแบบการตอบ ==",
         // E: remove corrected field to save tokens
@@ -792,15 +813,15 @@ async function runProof(){
         raw=await callGemini(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
-        allIssues=allIssues.concat(pi);
-        allCorr.push(result.corrected||ocrText);  // E: fallback to OCR text
+        allIssues=allIssues.concat(filterOcrNoise(pi));
+        allCorr.push(result.corrected||ocrText);
 
       } else if(model==="typhoon"){
         raw=await callTyphoon(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
-        allIssues=allIssues.concat(pi);
-        allCorr.push(result.corrected||ocrText);  // E: fallback to OCR text
+        allIssues=allIssues.concat(filterOcrNoise(pi));
+        allCorr.push(result.corrected||ocrText);
 
       } else if(model==="both"){
         setGo("หน้า "+p+"/"+totP+" — Gemini...");
@@ -812,7 +833,7 @@ async function runProof(){
         var issA=Array.isArray(resA.issues)?resA.issues:[];
         var issB=Array.isArray(resB.issues)?resB.issues:[];
         var merged=mergeIssues(issA,issB).map(function(i){return Object.assign({},i,{page:p});});
-        allIssues=allIssues.concat(merged);
+        allIssues=allIssues.concat(filterOcrNoise(merged));
         allCorr.push(resA.corrected||resB.corrected||"");
       }
     }
@@ -992,12 +1013,8 @@ function renderIssues(){
 function renderCorr(){
   const el=document.getElementById("ctext");
   if(!corrText){el.textContent="(ไม่มีข้อมูล)";return;}
-  let html=esc(corrText);
-  issues.forEach(function(iss){
-    if(!iss.original||!iss.corrected||iss.type==="forbidden") return;
-    html=html.replace(new RegExp(reEsc(esc(iss.corrected)),"g"),'<span class="ins">'+esc(iss.corrected)+"</span>");
-  });
-  el.innerHTML=html;
+  // Use textContent to avoid any HTML injection from OCR text
+  el.textContent=corrText;
 }
 
 async function focIssue(idx){
