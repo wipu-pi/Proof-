@@ -215,7 +215,14 @@ textarea:focus{border-color:var(--tx)}
     <option value="both">🤖📚 AI + พจนานุกรม</option>
   </select>
 </div>
-              <div class="lbl">AI Model</div>
+              <div class="lbl">ประเภทเอกสาร</div>
+              <select class="msel" id="doc-type">
+                <option value="formal">📄 หนังสือราชการ / จดหมาย</option>
+                <option value="marketing">📢 การตลาด / โฆษณา</option>
+                <option value="academic">🎓 วิชาการ / รายงาน</option>
+                <option value="general">💬 ทั่วไป</option>
+              </select>
+              <div class="lbl" style="margin-top:8px">AI Model</div>
               <select class="msel" id="model-sel">
                 <option value="gemini">🤖 Gemini 2.5 Flash</option>
                 <option value="typhoon">🇹🇭 Typhoon v2 (Thai)</option>
@@ -682,11 +689,14 @@ async function runProof(){
 
     var spellRules=document.getElementById("cs").checked?[
       "การสะกดคำ — ตรวจสอบตามพจนานุกรมราชบัณฑิตยสภา:",
-      "  • ไ- กับ ใ- : คำที่ใช้ ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใส่ ใฝ่ ใหน ใจ ใฝ ใสใจ ใต้) ที่เหลือใช้ ไ-",
+      // C: corrected canonical 20 ใ- words
+      "  • ไ- กับ ใ- : คำที่ใช้ ใ- มี 20 คำเท่านั้น ได้แก่:",
+      "    ใกล้ ใคร ใจ ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหญ่ ใหม่ ใหล ใส ใส่ ใสใจ ใยบัว ใจดี ใฝ่",
+      "    คำอื่นทั้งหมดใช้ ไ- เท่านั้น",
       "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก หนัง ฯลฯ — ห นำทำให้เสียงสูง",
       "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
-      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด/กระทัดรัด, ทะเลาะ/ทะเลา, เลขา/เลขาฯ",
-      "  • ตัวสะกด : แม่กก กด กน กม กง กว กย กร"
+      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด→กระทัดรัด, ทะเลาะ(ไม่ใช่ทะเลา), ทรัพย์สิน, กรณี, ปัญหา",
+      "  • ตัวสะกด : แม่กก(ก ข ค) กด(ด ต ถ ท) กน(น ณ) กม(ม) กง(ง) กว(ว) กย(ย) กร(ร ล)"
     ].join("\n"):"";
 
     var punctRules=document.getElementById("cp").checked?[
@@ -709,9 +719,36 @@ async function runProof(){
       var dictIssues=(mode==="dict"||mode==="both") ? runDictCheck(ocrText,p) : [];
       allIssues=allIssues.concat(dbIssues).concat(dictIssues);
 
+      // D: document type rules
+      var docType=document.getElementById("doc-type").value;
+      var docTypeRules={
+        formal:[
+          "เอกสาร: หนังสือราชการ/จดหมายทางการ",
+          "  • ใช้ภาษาทางการ ห้ามใช้คำพูด/ภาษาปาก",
+          "  • คำนำหน้านาม (นาย/นาง/น.ส./ดร.) ต้องถูกต้อง",
+          "  • ตัวเลขในข้อความให้สะกดเป็นตัวอักษร เช่น สี่สิบห้า ไม่ใช่ 45"
+        ].join("\n"),
+        marketing:[
+          "เอกสาร: สื่อการตลาด/โฆษณา",
+          "  • ภาษาปากหรือ informal ถือว่าตั้งใจ ไม่ใช่ผิด",
+          "  • ชื่อแบรนด์และ slogan ต้องตรงเป๊ะ",
+          "  • คำภาษาอังกฤษที่ใช้ใน marketing context ไม่ต้องทับศัพท์"
+        ].join("\n"),
+        academic:[
+          "เอกสาร: บทความวิชาการ/รายงาน",
+          "  • ใช้ศัพท์บัญญัติราชบัณฑิตยสภาเมื่อมี",
+          "  • การอ้างอิงและตัวเลขต้องแม่นยำ",
+          "  • หลีกเลี่ยงภาษาพูด ใช้ภาษาเขียนเท่านั้น"
+        ].join("\n"),
+        general:""
+      }[docType]||"";
+
       var promptLines=[
         "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
         "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
+        "",
+        // D: doc type context
+        docTypeRules,
         "",
         "== ข้อความจาก PDF หน้า "+p+" ("+(getOcrMode()==="deepseek"?"DeepSeek OCR":getOcrMode()==="typhoon"?"Typhoon OCR":getOcrMode()==="akson"?"AksonOCR":getOcrMode()==="pdfjs"?"PDF.js":"Google Vision OCR")+") ==",
         ocrText,
@@ -728,17 +765,25 @@ async function runProof(){
         "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
         "",
         "== กฎสำคัญ ==",
-        "1. original ต้องคัดลอกมาจากข้อความ OCR ด้านบนทุกตัวอักษร",
+        // A: tighter original rule
+        "1. original ต้องเป็นคำหรือวลีที่สั้นที่สุดที่ปรากฏในข้อความ OCR ด้านบนทุกตัวอักษร",
+        "   ห้ามใส่คำบริบทรอบข้าง — ถ้าคำผิดคือ 'สะกด' ให้ original='สะกด' ไม่ใช่ 'การสะกดคำ'",
         "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
         "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
-        "4. ถ้า OCR อ่านผิดพลาด (เช่น ตัวอักษรเป็นสัญลักษณ์แปลก) ให้ข้ามไป",
+        // F: OCR noise detection
+        "4. ข้าม token ที่มีลักษณะ OCR noise: มีสัญลักษณ์แปลก (?, ?, ?, ?), ตัวเลขติดกับอักษรไทย (เช่น 2ก, ม3), หรือสั้นกว่า 2 ตัวอักษร",
+        // B: confidence threshold
+        "5. รายงานเฉพาะข้อผิดพลาดที่มั่นใจ 90% ขึ้นไปเท่านั้น ถ้าไม่แน่ใจให้ข้าม",
+        "6. ถ้าคำนั้นอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
         "",
         "== รูปแบบการตอบ ==",
+        // E: remove corrected field to save tokens
         'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown ห้ามมีข้อความนำหน้าหรือท้าย:',
-        '{"corrected":"ข้อความหน้านี้ที่แก้ไขแล้ว","issues":[{"type":"spelling","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย","page":'+p+'}],"summary":"สรุป"}',
+        '{"issues":[{"type":"spelling","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย 1 บรรทัด","page":'+p+'}]}',
         "type ที่ใช้ได้: spelling | punctuation | brand | forbidden",
-        "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]"
-      ].filter(function(l){return l!==undefined&&l!==null;});
+        "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]",
+        "ห้ามใส่ corrected หรือ summary ในระดับ root — ไม่จำเป็น"
+      ].filter(function(l){return l!==undefined&&l!==null&&l!=="";});
       var prompt=promptLines.join("\n");
       if(mode==="dict"){allCorr.push(ocrText);continue;}
       var raw="", rawB="";
@@ -748,14 +793,14 @@ async function runProof(){
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
         allIssues=allIssues.concat(pi);
-        allCorr.push(result.corrected||"");
+        allCorr.push(result.corrected||ocrText);  // E: fallback to OCR text
 
       } else if(model==="typhoon"){
         raw=await callTyphoon(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
         allIssues=allIssues.concat(pi);
-        allCorr.push(result.corrected||"");
+        allCorr.push(result.corrected||ocrText);  // E: fallback to OCR text
 
       } else if(model==="both"){
         setGo("หน้า "+p+"/"+totP+" — Gemini...");
@@ -997,9 +1042,16 @@ async function runTxt(){
   const checks=[];
   if(document.getElementById("cs").checked) checks.push("การสะกดคำ");
   if(document.getElementById("cp").checked) checks.push("วรรคตอน");
+  var docType=document.getElementById("doc-type").value;
+  var docTypeRulesTxt={
+    formal:"เอกสารทางการ — ใช้ภาษาทางการ ห้ามภาษาพูด คำนำหน้านามต้องถูกต้อง",
+    marketing:"สื่อการตลาด — ภาษาปาก/informal ถือว่าตั้งใจ ชื่อแบรนด์และ slogan ต้องตรงเป๊ะ",
+    academic:"วิชาการ — ใช้ศัพท์บัญญัติ ราชบัณฑิตยสภา หลีกเลี่ยงภาษาพูด",
+    general:""
+  }[docType]||"";
   const promptLines=[
     "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
-    "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
+    docTypeRulesTxt,
     "",
     "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
     "แบรนด์ (สะกดต้องตรงเป๊ะ): "+(DB.brand.join(", ")||"ไม่มี"),
@@ -1007,7 +1059,7 @@ async function runTxt(){
     "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
     "",
     "กฎการสะกด:",
-    "  • ใ- มี 20 คำเท่านั้น (ใจ ใคร ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหม่ ใหญ่ ใกล้ ใส ใส่ ใฝ่) ที่เหลือใช้ ไ-",
+    "  • ใ- มี 20 คำเท่านั้น: ใกล้ ใคร ใจ ใช้ ใด ใต้ ใน ใบ ใฝ ใย ให้ ใหญ่ ใหม่ ใหล ใส ใส่ ใสใจ ใยบัว ใจดี ใฝ่ — ที่เหลือใช้ ไ-",
     "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก — ห นำทำให้เสียงสูง",
     "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
     "  • ตัวสะกด : แม่กก กด กน กม กง กว กย กร",
@@ -1016,13 +1068,17 @@ async function runTxt(){
     "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
     "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ",
     "",
-    "กฎสำคัญ: ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
+    "กฎสำคัญ:",
+    "  • original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ ห้ามใส่คำบริบทรอบข้าง",
+    "  • รายงานเฉพาะที่มั่นใจ 90%+ เท่านั้น ถ้าไม่แน่ใจให้ข้าม",
+    "  • ถ้าอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
+    "  • ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
     "",
     "ข้อความ:",
     text,
     "",
-    'JSON เท่านั้น ห้าม markdown: {"corrected":"ข้อความที่แก้แล้ว","issues":[{"type":"spelling|punctuation|brand|forbidden","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย"}],"summary":"สรุป"}'
-  ];
+    'JSON เท่านั้น ห้าม markdown: {"issues":[{"type":"spelling|punctuation|brand|forbidden","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย 1 บรรทัด"}]}'
+  ].filter(function(l){return l!==undefined&&l!==null&&l!=="";});
   try{
     const res=await fetch(WORKER_URL+"/api/gemini",{
       method:"POST", headers:{"Content-Type":"application/json"},
