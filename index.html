@@ -438,8 +438,8 @@ async function loadPdf(file){
   document.getElementById("bg").disabled=true;
   try{
     const ab=await file.arrayBuffer();
-    pdfBytes=new Uint8Array(ab);
-    pdfDoc=await pdfjsLib.getDocument({data:pdfBytes}).promise;
+    pdfBytes=new Uint8Array(ab.slice(0)); // keep a copy before pdf.js detaches the buffer
+    pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
     totP=pdfDoc.numPages;
     document.getElementById("dz").style.display="none";
     document.getElementById("fb").innerHTML=
