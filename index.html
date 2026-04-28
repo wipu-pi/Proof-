@@ -1112,6 +1112,127 @@ function updDB(){
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function reEsc(s){return s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
 
+// ── PDF annotation color map ─────────────────────────────────
+var ANNOT_COLOR={
+  spelling:   {rect:[0.85,0.18,0.18], note:[1,0.6,0.6], icon:"Note"},
+  punctuation:{rect:[0.82,0.44,0.02], note:[1,0.85,0.5], icon:"Note"},
+  brand:      {rect:[0.10,0.33,0.88], note:[0.6,0.75,1], icon:"Note"},
+  forbidden:  {rect:[0.63,0.00,0.13], note:[1,0.4,0.4], icon:"Note"}
+};
+
+// Add a real PDF sticky-note annotation using pdf-lib low-level API.
+// Works in Acrobat, Preview, Edge, Chrome PDF viewer etc.
+function addPdfAnnotation(pdfDoc, page, x, y, w, h, iss){
+  var col=ANNOT_COLOR[iss.type]||ANNOT_COLOR.spelling;
+  var ph=page.getHeight();
+  // PDF coordinate system is bottom-left origin
+  var rx=x, ry=ph-y-h, rw=Math.max(w,8), rh=Math.max(h,8);
+
+  // Build comment text
+  var typeLabel={spelling:"สะกดผิด",punctuation:"วรรคตอน",brand:"ชื่อแบรนด์",forbidden:"คำต้องห้าม"};
+  var contents=(typeLabel[iss.type]||iss.type)+": "+
+    (iss.original||"")+(iss.corrected?" → "+iss.corrected:"")+
+    (iss.explanation?"\n"+iss.explanation:"");
+
+  var ctx=pdfDoc.context;
+  var PDFName=PDFLib.PDFName;
+  var PDFArray=PDFLib.PDFArray;
+  var PDFNumber=PDFLib.PDFNumber;
+  var PDFString=PDFLib.PDFString;
+  var PDFBool=PDFLib.PDFBool;
+  var PDFDict=PDFLib.PDFDict;
+  var PDFHexString=PDFLib.PDFHexString;
+
+  // Highlight annotation over the word
+  var hlRef=ctx.register(ctx.obj({
+    Type: PDFName.of("Annot"),
+    Subtype: PDFName.of("Square"),
+    Rect: ctx.obj([
+      PDFNumber.of(rx),
+      PDFNumber.of(ry),
+      PDFNumber.of(rx+rw),
+      PDFNumber.of(ry+rh)
+    ]),
+    C: ctx.obj([
+      PDFNumber.of(col.rect[0]),
+      PDFNumber.of(col.rect[1]),
+      PDFNumber.of(col.rect[2])
+    ]),
+    IC: ctx.obj([
+      PDFNumber.of(col.rect[0]),
+      PDFNumber.of(col.rect[1]),
+      PDFNumber.of(col.rect[2])
+    ]),
+    CA: PDFNumber.of(0.3),
+    BS: ctx.obj({W: PDFNumber.of(1.5), S: PDFName.of("S")}),
+    Contents: PDFHexString.fromText(contents),
+    T: PDFHexString.fromText("ProofTH"),
+    F: PDFNumber.of(4),
+    NM: PDFString.of("proofth-hl-"+Math.random().toString(36).slice(2)),
+  }));
+
+  // Sticky note annotation (popup comment icon)
+  var noteRef=ctx.register(ctx.obj({
+    Type: PDFName.of("Annot"),
+    Subtype: PDFName.of("Text"),
+    Rect: ctx.obj([
+      PDFNumber.of(rx+rw),
+      PDFNumber.of(ry+rh-18),
+      PDFNumber.of(rx+rw+18),
+      PDFNumber.of(ry+rh)
+    ]),
+    Contents: PDFHexString.fromText(contents),
+    T: PDFHexString.fromText("ProofTH"),
+    C: ctx.obj([
+      PDFNumber.of(col.note[0]),
+      PDFNumber.of(col.note[1]),
+      PDFNumber.of(col.note[2])
+    ]),
+    F: PDFNumber.of(4),
+    Open: PDFBool.False,
+    Name: PDFName.of("Comment"),
+    NM: PDFString.of("proofth-note-"+Math.random().toString(36).slice(2)),
+  }));
+
+  // Append both annotations to page /Annots array
+  var pageNode=page.node;
+  var existing=pageNode.Annots();
+  if(existing){
+    existing.push(hlRef);
+    existing.push(noteRef);
+  } else {
+    pageNode.set(PDFName.of("Annots"), ctx.obj([hlRef, noteRef]));
+  }
+}
+
+// Find word rectangles — shared logic for download and screen highlight
+function findWordRects(words, s, scX, scY){
+  s=s.trim(); if(!s||!words.length) return [];
+  var out=[];
+  for(var i=0;i<words.length;i++){if(words[i].text===s){out.push(words[i]);if(out.length>=5)break;}}
+  if(!out.length) for(var i=0;i<words.length;i++){if(words[i].text.includes(s)){out.push(words[i]);if(out.length>=5)break;}}
+  if(!out.length){
+    var matches=[];
+    for(var i=0;i<words.length;i++){if(words[i].text.trim().length>=2&&s.includes(words[i].text.trim())) matches.push(i);}
+    if(matches.length>0&&matches.length<=8){
+      var groups=[];
+      matches.forEach(function(idx){
+        var w=words[idx], placed=false;
+        for(var g=0;g<groups.length;g++){if(Math.abs(w.y-words[groups[g][0]].y)<w.h*0.7){groups[g].push(idx);placed=true;break;}}
+        if(!placed) groups.push([idx]);
+      });
+      groups.sort(function(a,b){return b.length-a.length;});
+      out=groups[0].map(function(idx){return words[idx];});
+    }
+  }
+  if(out.length>1){
+    var mx=out[0].x,my=out[0].y,mr=out[0].x+out[0].w,mb=out[0].y+out[0].h;
+    out.forEach(function(r){mx=Math.min(mx,r.x);my=Math.min(my,r.y);mr=Math.max(mr,r.x+r.w);mb=Math.max(mb,r.y+r.h);});
+    out=[{x:mx,y:my,w:mr-mx,h:mb-my,imgW:out[0].imgW,imgH:out[0].imgH}];
+  }
+  return out.map(function(r){return{x:r.x*scX, y:r.y*scY, w:Math.max(r.w*scX,8), h:Math.max(r.h*scY,8)};});
+}
+
 async function downloadPdf(){
   var btn=document.getElementById("btn-dlpdf");
   btn.textContent="กำลังสร้าง..."; btn.disabled=true;
@@ -1120,12 +1241,7 @@ async function downloadPdf(){
     if(typeof PDFLib==="undefined") throw new Error("pdf-lib ยังโหลดไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่");
     var pdfDoc=await PDFLib.PDFDocument.load(pdfBytes);
     var pages=pdfDoc.getPages();
-    var colorMap={
-      spelling:   [0.85,0.18,0.18],
-      punctuation:[0.82,0.44,0.02],
-      brand:      [0.10,0.33,0.88],
-      forbidden:  [0.63,0.00,0.13]
-    };
+
     issues.forEach(function(iss){
       var pageIdx=(iss.page||1)-1;
       if(pageIdx<0||pageIdx>=pages.length) return;
@@ -1135,51 +1251,24 @@ async function downloadPdf(){
       if(!words.length) return;
       var imgW=words[0].imgW||1000, imgH=words[0].imgH||1414;
       var scX=pw/imgW, scY=ph/imgH;
-      var col=colorMap[iss.type]||colorMap.spelling;
       var s=(iss.original||"").trim();
       if(!s) return;
-      var rects=[];
-      for(var i=0;i<words.length;i++){
-        if(words[i].text===s){rects.push(words[i]);if(rects.length>=5)break;}
-      }
-      if(!rects.length){
-        for(var i=0;i<words.length;i++){
-          if(words[i].text.includes(s)){rects.push(words[i]);if(rects.length>=5)break;}
-        }
-      }
-      if(!rects.length){
-        for(var i=0;i<words.length;i++){
-          if(words[i].text.trim().length>=2&&s.includes(words[i].text.trim())){
-            rects.push(words[i]);if(rects.length>=8)break;
-          }
-        }
-      }
-      if(rects.length>1){
-        var mx=rects[0].x,my=rects[0].y,mr=rects[0].x+rects[0].w,mb=rects[0].y+rects[0].h;
-        rects.forEach(function(r){mx=Math.min(mx,r.x);my=Math.min(my,r.y);mr=Math.max(mr,r.x+r.w);mb=Math.max(mb,r.y+r.h);});
-        rects=[{x:mx,y:my,w:mr-mx,h:mb-my}];
-      }
+
+      var rects=findWordRects(words, s, scX, scY);
+      if(!rects.length) return;
+
       rects.forEach(function(r){
-        var x=r.x*scX;
-        var y=ph-(r.y*scY)-(r.h*scY);
-        var w=r.w*scX, h=r.h*scY;
-        if(w<2||h<2) return;
-        page.drawRectangle({
-          x:x, y:y, width:w, height:h,
-          color:PDFLib.rgb(col[0],col[1],col[2]),
-          opacity:0.3,
-          borderColor:PDFLib.rgb(col[0]*0.7,col[1]*0.7,col[2]*0.7),
-          borderWidth:1
-        });
+        addPdfAnnotation(pdfDoc, page, r.x, r.y, r.w, r.h, iss);
       });
     });
+
     var outBytes=await pdfDoc.save();
     var blob=new Blob([outBytes],{type:"application/pdf"});
     var url=URL.createObjectURL(blob);
     var a=document.createElement("a");
     a.href=url; a.download="proofed.pdf"; a.click();
     URL.revokeObjectURL(url);
-  }catch(err){alert("ดาวน์โหลดไม่สำเร็จ: "+err.message);}
+  }catch(err){alert("ดาวน์โหลดไม่สำเร็จ: "+err.message); console.error(err);}
   btn.textContent="⬇ PDF"; btn.disabled=false;
 }
 
