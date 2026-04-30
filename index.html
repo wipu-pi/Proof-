@@ -805,11 +805,29 @@ async function runProof(){
         general:""
       }[docType]||"";
 
+      // Preset-driven persona — AI responds to framing more than numbered rules
+      var presetPersona={
+        thorough:[
+          "คุณเป็น proofreader ที่ตรวจทุกอย่างที่น่าสงสัย",
+          "หน้าที่ของคุณคือค้นหาข้อผิดพลาดให้ครบถ้วนที่สุด แม้ไม่แน่ใจ 100% ก็ให้รายงาน",
+          "ดีกว่าเจอมากไปกว่าพลาด — ผู้ใช้จะตัดสินใจเองว่าอันไหนสำคัญ"
+        ].join("\n"),
+        balanced:[
+          "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
+          "รายงานเฉพาะข้อผิดพลาดที่มั่นใจ — ข้ามกรณีที่อาจเป็นชื่อเฉพาะหรือคำทับศัพท์ที่ยอมรับได้"
+        ].join("\n"),
+        precise:[
+          "คุณเป็น senior editor ที่รายงานเฉพาะข้อผิดพลาดที่ชัดเจน 100% เท่านั้น",
+          "ถ้ามีความสงสัยแม้เพียงเล็กน้อยว่าคำนั้นอาจถูกต้องในบริบทนั้น ให้ข้ามทั้งหมด",
+          "ผลลัพธ์ต้องมีความแม่นยำสูงสุด — น้อยแต่มาก"
+        ].join("\n")
+      };
+      var presetKey=Object.keys(PRESETS).find(function(k){return PRESETS[k]===curPreset;})||"balanced";
+      var persona=presetPersona[presetKey];
+
       var promptLines=[
-        "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
-        "มีความเชี่ยวชาญด้านอักขรวิธีไทย วรรคตอน และการเขียนเชิงวิชาการ/ธุรกิจ",
+        persona,
         "",
-        // D: doc type context
         docTypeRules,
         "",
         "== ข้อความจาก PDF หน้า "+p+" ("+(getOcrMode()==="deepseek"?"DeepSeek OCR":getOcrMode()==="typhoon"?"Typhoon OCR":getOcrMode()==="akson"?"AksonOCR":getOcrMode()==="pdfjs"?"PDF.js":"Google Vision OCR")+") ==",
@@ -827,26 +845,17 @@ async function runProof(){
         "คำต้องห้าม (รายงานทุกครั้งที่พบ): "+(DB.forbidden.join(", ")||"ไม่มี"),
         "",
         "== กฎสำคัญ ==",
-        // A: tighter original rule
-        "1. original ต้องเป็นคำหรือวลีที่สั้นที่สุดที่ปรากฏในข้อความ OCR ด้านบนทุกตัวอักษร",
-        "   ห้ามใส่คำบริบทรอบข้าง — ถ้าคำผิดคือ 'สะกด' ให้ original='สะกด' ไม่ใช่ 'การสะกดคำ'",
-        "2. ข้ามคำที่อยู่ในรายการอนุมัติ ไม่ต้องรายงาน",
-        "3. คำทับศัพท์ที่ใช้กันทั่วไปและสะกดถูกต้องแล้ว ไม่ต้องรายงาน",
-        // F: OCR noise detection
-        "4. ข้าม token ที่มีลักษณะ OCR noise: มีสัญลักษณ์แปลก, ตัวเลขติดกับอักษรไทย (เช่น 2ก, ม3), หรือสั้นกว่า 2 ตัวอักษร",
-        "5. ห้ามรายงานกรณีที่ OCR แยกคำติดกันด้วย space เช่น 'เครน ยก' 'คง ที่' 'ยก กล่อง'",
-        "   เพราะนี่คือ OCR splitting ไม่ใช่การสะกดผิด — ถ้า original มี space อยู่ตรงกลางคำไทย ให้ข้ามทั้งหมด",
-        // B: confidence threshold
-        "6. "+getConfidenceRule(),
-        "7. ถ้าคำนั้นอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
+        "1. original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ OCR ทุกตัวอักษร ห้ามใส่คำบริบทรอบข้าง",
+        "2. ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
+        "3. ข้าม OCR noise: สัญลักษณ์แปลก, ตัวเลขติดอักษรไทย, สั้นกว่า "+curPreset.minLen+" ตัวอักษร",
+        "4. ห้ามรายงานคำที่ OCR แยกด้วย space เช่น 'เครน ยก' — นี่คือ OCR artifact ไม่ใช่ผิด",
+        "5. ถ้าอาจเป็นชื่อเฉพาะหรือชื่อคน ให้ข้าม",
         "",
         "== รูปแบบการตอบ ==",
-        // E: remove corrected field to save tokens
-        'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown ห้ามมีข้อความนำหน้าหรือท้าย:',
+        'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown:',
         '{"issues":[{"type":"spelling","original":"คำผิด","corrected":"คำถูก","explanation":"อธิบาย 1 บรรทัด","page":'+p+'}]}',
-        "type ที่ใช้ได้: spelling | punctuation | brand | forbidden",
-        "ถ้าไม่พบข้อผิดพลาด ให้ issues=[]",
-        "ห้ามใส่ corrected หรือ summary ในระดับ root — ไม่จำเป็น"
+        "type: spelling | punctuation | brand | forbidden",
+        "ถ้าไม่พบ ให้ issues=[]"
       ].filter(function(l){return l!==undefined&&l!==null&&l!=="";});
       var prompt=promptLines.join("\n");
       if(mode==="dict"){allCorr.push(ocrText);continue;}
@@ -1109,8 +1118,14 @@ async function runTxt(){
     academic:"วิชาการ — ใช้ศัพท์บัญญัติ ราชบัณฑิตยสภา หลีกเลี่ยงภาษาพูด",
     general:""
   }[docType]||"";
+  var presetPersonaTxt={
+    thorough:"คุณเป็น proofreader ที่ตรวจทุกอย่างที่น่าสงสัย รายงานแม้ไม่แน่ใจ 100% — ดีกว่าเจอมากไปกว่าพลาด",
+    balanced:"คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ รายงานเฉพาะที่มั่นใจ ข้ามกรณีที่คลุมเครือ",
+    precise:"คุณเป็น senior editor รายงานเฉพาะข้อผิดพลาดที่ชัดเจน 100% เท่านั้น ถ้าสงสัยแม้เล็กน้อยให้ข้าม"
+  };
+  var presetKeyTxt=Object.keys(PRESETS).find(function(k){return PRESETS[k]===curPreset;})||"balanced";
   const promptLines=[
-    "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
+    presetPersonaTxt[presetKeyTxt],
     docTypeRulesTxt,
     "",
     "ตรวจสอบ: "+(checks.join(", ")||"การสะกดคำ"),
@@ -1128,11 +1143,7 @@ async function runTxt(){
     "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
     "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ",
     "",
-    "กฎสำคัญ:",
-    "  • original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ ห้ามใส่คำบริบทรอบข้าง",
-    "  • "+getConfidenceRule(),
-    "  • ถ้าอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
-    "  • ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
+    "กฎสำคัญ: original ต้องสั้นที่สุด / ข้ามชื่อเฉพาะ / ข้ามคำทับศัพท์ที่ถูก",
     "",
     "ข้อความ:",
     text,
