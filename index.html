@@ -650,25 +650,29 @@ async function callTyphoon(prompt){
 // Client-side post-process: remove issues that are clearly OCR split-word artifacts
 // These slip through even with prompt instructions, so we filter defensively.
 function filterOcrNoise(issues){
+  var thaiRange=/[\u0E00-\u0E7F]/;
+  var thaiSpace=/[\u0E00-\u0E7F]\s+[\u0E00-\u0E7F]/;
+  var mathOnly=/^[0-9\d\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
+  var thaiOrAscii=/[\u0E00-\u0E7F\u0020-\u007E]/g;
   return issues.filter(function(iss){
     var orig=(iss.original||"").trim();
     var corr=(iss.corrected||"").trim();
     var expl=(iss.explanation||"").toLowerCase();
-    // Skip if original === corrected (AI "corrected" word to itself)
+    // Skip if original === corrected (AI hallucination)
     if(orig===corr) return false;
-    // Skip if original is purely numeric or math (3, 38.4, ΔE, etc.)
-    if(/^[\d\.\,\+\-\*\/\=\(\)\[\]\^ΔΣπ\s]+$/.test(orig)) return false;
-    // Skip if original has no Thai characters at all (pure Latin/math/symbols)
-    if(!/[฀-๿]/.test(orig)) return false;
-    // Skip if original contains a space between Thai chars — OCR word-split
-    if(/[฀-๿]\s+[฀-๿]/.test(orig)) return false;
-    // Skip if explanation says "ติดกัน" (should be written together)
+    // Skip if purely numeric or math symbols
+    if(mathOnly.test(orig)) return false;
+    // Skip if no Thai characters at all (pure Latin/numbers/symbols)
+    if(!thaiRange.test(orig)) return false;
+    // Skip if space between Thai chars — OCR word-split artifact
+    if(thaiSpace.test(orig)) return false;
+    // Skip if explanation mentions writing together
     if(expl.includes("ติดกัน")) return false;
-    // Skip if original is 1 character or less
+    // Skip single characters
     if(orig.length<=1) return false;
-    // Skip if >40% non-Thai/non-ASCII garbage
-    var thaiOrAlpha=(orig.match(/[฀-๿ -~]/g)||[]).length;
-    if(orig.length>2 && thaiOrAlpha/orig.length < 0.6) return false;
+    // Skip if >40% garbage characters
+    var clean=(orig.match(thaiOrAscii)||[]).length;
+    if(orig.length>2 && clean/orig.length < 0.6) return false;
     return true;
   });
 }
