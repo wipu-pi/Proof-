@@ -121,6 +121,13 @@ body{font-family:'IBM Plex Sans Thai',sans-serif;background:var(--bg);color:var(
 .msel:focus{border-color:var(--blu)}
 .conf-ok{font-size:10px;background:#EDF7EE;color:#297A30;padding:1px 5px;border-radius:99px;border:1px solid rgba(41,122,48,.2);flex-shrink:0;margin-top:2px}
 .conf-warn{font-size:10px;background:#FEF6E4;color:#8C5A0A;padding:1px 5px;border-radius:99px;border:1px solid rgba(140,90,10,.2);flex-shrink:0;margin-top:2px}
+.preset-wrap{display:flex;gap:6px;margin-top:2px}
+.preset{flex:1;padding:8px 4px;border-radius:var(--rs);border:1.5px solid var(--bd2);background:var(--sur);cursor:pointer;font-family:inherit;font-size:11px;color:var(--tx2);text-align:center;transition:.12s;user-select:none}
+.preset:hover{background:var(--sur2)}
+.preset.on{border-color:var(--tx);background:var(--tx);color:#fff}
+.preset .pie{font-size:14px;display:block;margin-bottom:2px}
+.preset .pname{display:block;font-size:11px;font-weight:600}
+.preset .pdesc{display:block;font-size:10px;opacity:.65;margin-top:1px}
 .fbar{display:flex;gap:3px;padding:6px 8px;border-bottom:1px solid var(--bd);flex-wrap:wrap;flex-shrink:0}
 .ftag{padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid transparent;transition:.12s;user-select:none;opacity:.45}
 .ftag.on{opacity:1}
@@ -203,6 +210,26 @@ textarea:focus{border-color:var(--tx)}
               <input type="checkbox" id="cb2" checked style="display:none">
               <input type="checkbox" id="cf" checked style="display:none">
               <input type="checkbox" id="cd" style="display:none">
+            </div>
+          </div>
+          <div>
+            <div class="lbl">ความเข้มงวด</div>
+            <div class="preset-wrap">
+              <button class="preset" id="pre-thorough" onclick="setPreset('thorough',this)">
+                <span class="pie">🔍</span>
+                <span class="pname">ละเอียด</span>
+                <span class="pdesc">พบมาก อาจมี noise</span>
+              </button>
+              <button class="preset on" id="pre-balanced" onclick="setPreset('balanced',this)">
+                <span class="pie">⚖️</span>
+                <span class="pname">สมดุล</span>
+                <span class="pdesc">แนะนำสำหรับทั่วไป</span>
+              </button>
+              <button class="preset" id="pre-precise" onclick="setPreset('precise',this)">
+                <span class="pie">🎯</span>
+                <span class="pname">แม่นยำ</span>
+                <span class="pdesc">เฉพาะที่มั่นใจสูง</span>
+              </button>
             </div>
           </div>
           <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -647,32 +674,44 @@ async function callTyphoon(prompt){
   return ((data.choices||[])[0]||{}).message ? data.choices[0].message.content : "";
 }
 
-// Client-side post-process: remove issues that are clearly OCR split-word artifacts
-// These slip through even with prompt instructions, so we filter defensively.
+// ── Strictness presets ───────────────────────────────────────
+var PRESETS={
+  thorough:{confidence:70, minLen:2, blockSplit:false},
+  balanced:{confidence:85, minLen:2, blockSplit:true},
+  precise: {confidence:95, minLen:3, blockSplit:true}
+};
+var curPreset=PRESETS.balanced;
+
+function setPreset(name,el){
+  curPreset=PRESETS[name]||PRESETS.balanced;
+  document.querySelectorAll(".preset").forEach(function(b){b.classList.remove("on");});
+  el.classList.add("on");
+}
+function getConfidenceRule(){
+  return "รายงานเฉพาะข้อผิดพลาดที่มั่นใจ "+curPreset.confidence+"%+ เท่านั้น ถ้าไม่แน่ใจให้ข้าม";
+}
+
+// Client-side post-process — removes OCR noise and applies preset thresholds
 function filterOcrNoise(issues){
   var thaiRange=/[\u0E00-\u0E7F]/;
   var thaiSpace=/[\u0E00-\u0E7F]\s+[\u0E00-\u0E7F]/;
-  var mathOnly=/^[0-9\d\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
+  var mathOnly=/^[0-9\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
   var thaiOrAscii=/[\u0E00-\u0E7F\u0020-\u007E]/g;
   return issues.filter(function(iss){
     var orig=(iss.original||"").trim();
     var corr=(iss.corrected||"").trim();
     var expl=(iss.explanation||"").toLowerCase();
-    // Skip if original === corrected (AI hallucination)
-    if(orig===corr) return false;
-    // Skip if purely numeric or math symbols
-    if(mathOnly.test(orig)) return false;
-    // Skip if no Thai characters at all (pure Latin/numbers/symbols)
-    if(!thaiRange.test(orig)) return false;
-    // Skip if space between Thai chars — OCR word-split artifact
-    if(thaiSpace.test(orig)) return false;
-    // Skip if explanation mentions writing together
-    if(expl.includes("ติดกัน")) return false;
-    // Skip single characters
-    if(orig.length<=1) return false;
-    // Skip if >40% garbage characters
+    // Always filter
+    if(orig===corr)              return false;  // same word — AI hallucination
+    if(mathOnly.test(orig))      return false;  // pure numbers/math
+    if(!thaiRange.test(orig))    return false;  // no Thai chars at all
+    if(expl.includes("ติดกัน")) return false;  // OCR space-join artifact
+    if(orig.length<curPreset.minLen) return false;  // too short (preset)
+    // Preset-dependent
+    if(curPreset.blockSplit && thaiSpace.test(orig)) return false;  // OCR split
+    // Garbage ratio check
     var clean=(orig.match(thaiOrAscii)||[]).length;
-    if(orig.length>2 && clean/orig.length < 0.6) return false;
+    if(orig.length>2 && clean/orig.length<0.6) return false;
     return true;
   });
 }
@@ -798,7 +837,7 @@ async function runProof(){
         "5. ห้ามรายงานกรณีที่ OCR แยกคำติดกันด้วย space เช่น 'เครน ยก' 'คง ที่' 'ยก กล่อง'",
         "   เพราะนี่คือ OCR splitting ไม่ใช่การสะกดผิด — ถ้า original มี space อยู่ตรงกลางคำไทย ให้ข้ามทั้งหมด",
         // B: confidence threshold
-        "6. รายงานเฉพาะข้อผิดพลาดที่มั่นใจ 90% ขึ้นไปเท่านั้น ถ้าไม่แน่ใจให้ข้าม",
+        "6. "+getConfidenceRule(),
         "7. ถ้าคำนั้นอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
         "",
         "== รูปแบบการตอบ ==",
@@ -1091,7 +1130,7 @@ async function runTxt(){
     "",
     "กฎสำคัญ:",
     "  • original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ ห้ามใส่คำบริบทรอบข้าง",
-    "  • รายงานเฉพาะที่มั่นใจ 90%+ เท่านั้น ถ้าไม่แน่ใจให้ข้าม",
+    "  • "+getConfidenceRule(),
     "  • ถ้าอาจเป็นชื่อเฉพาะ ชื่อคน หรือคำศัพท์เฉพาะทาง ให้ข้าม",
     "  • ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
     "",
