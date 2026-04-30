@@ -705,17 +705,26 @@ function getConfidenceRule(){
 // Client-side post-process — type-aware filter
 // Philosophy: filter out clear noise, but trust the AI for actual content judgment.
 // Better to show too many than miss real errors.
+function normThai(s){
+  // Normalize to NFC so visually identical characters compare equal.
+  // Also strip zero-width chars that OCR sometimes emits.
+  if(!s) return "";
+  try{
+    return s.normalize("NFC").replace(/[\u200B-\u200F\uFEFF]/g,"").trim();
+  }catch(e){return s.trim();}
+}
 function filterOcrNoise(issues){
   var thaiRange=/[\u0E00-\u0E7F]/;
   var mathOnly=/^[0-9\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
   return issues.filter(function(iss){
     var type=iss.type||"spelling";
-    var orig=(iss.original||"").trim();
-    var corr=(iss.corrected||"").trim();
+    var orig=normThai(iss.original);
+    var corr=normThai(iss.corrected);
     if(!orig) return false;
-    // Never flag approved words
-    if(DB.approved.indexOf(orig)>=0) return false;
-    // Same-as-corrected is always wrong (AI hallucination), except forbidden
+    // Never flag approved words (compare normalized)
+    var approvedNorm=DB.approved.map(normThai);
+    if(approvedNorm.indexOf(orig)>=0) return false;
+    // Same-as-corrected after normalization = AI hallucination
     if(type!=="forbidden" && orig===corr) return false;
     // Punctuation/brand/forbidden don't need Thai-character filtering
     if(type==="punctuation"||type==="brand"||type==="forbidden") return true;
@@ -862,11 +871,16 @@ async function runProof(){
         "== กฎสำคัญ ==",
         "1. original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ OCR ทุกตัวอักษร ห้ามใส่คำบริบทรอบข้าง",
         "2. ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
-        "3. รายงานคำที่ไม่สมบูรณ์ทุกครั้ง เช่น:",
-        "   • 'กล่อ' (ขาด ง) → 'กล่อง'",
-        "   • 'เคร' (ขาด น) → 'เครน'",
-        "   • 'แสด' (ขาด ง) → 'แสดง'",
-        "   • คำที่ดูเหมือนถูกตัดท้าย หรือขาดสระ/วรรณยุกต์ที่จำเป็น",
+        "3. รายงานคำที่ไม่สมบูรณ์ทุกครั้ง — ทั้งขาดท้ายและขาดกลางคำ:",
+        "   ขาดท้าย:",
+        "   • 'กล่อ' → 'กล่อง' (ขาด ง)",
+        "   • 'เคร' → 'เครน' (ขาด น)",
+        "   ขาดกลางคำ (สำคัญมาก):",
+        "   • 'สปิง' → 'สปริง' (ขาด ร)",
+        "   • 'แนวตง' → 'แนวตรง' (ขาด ร)",
+        "   • 'ตำแห่ง' → 'ตำแหน่ง' (ขาด น)",
+        "   • 'ปลอย' → 'ปล่อย' (ขาด ่)",
+        "   ตรวจทุกคำว่ามีพยัญชนะ สระ วรรณยุกต์ ครบถ้วนไหม โดยเฉพาะ ร ล น ที่มักหายในการพิมพ์/OCR",
         "4. ห้ามแก้คำที่สะกดถูกแล้วเป็นคำอื่น เช่น 'ลูก'→'โลก' หรือ 'เรียน'→'เลียน' (ทั้งคู่ถูก แต่ความหมายต่าง)",
         "   ถ้า original เป็นคำไทยที่สะกดถูกในพจนานุกรม ห้ามรายงาน",
         "5. ข้ามสูตรคณิตศาสตร์ เช่น 'F=mg', 'kg', 'm/s²', '441 J', '√10'",
@@ -1169,7 +1183,10 @@ async function runTxt(){
     "",
     "กฎสำคัญ:",
     "  • original ต้องเป็นคำที่สั้นที่สุด — ห้ามใส่บริบทรอบข้าง",
-    "  • รายงานคำไม่สมบูรณ์ทุกครั้ง เช่น 'กล่อ'→'กล่อง', 'เคร'→'เครน'",
+    "  • รายงานคำไม่สมบูรณ์ทั้งขาดท้ายและขาดกลางคำ:",
+    "    - 'กล่อ'→'กล่อง', 'เคร'→'เครน' (ขาดท้าย)",
+    "    - 'สปิง'→'สปริง', 'แนวตง'→'แนวตรง', 'ตำแห่ง'→'ตำแหน่ง' (ขาดกลางคำ)",
+    "    - ตรวจ ร ล น ที่มักหายในการพิมพ์",
     "  • ห้ามแก้คำที่สะกดถูกแล้วเป็นคำอื่น เช่น 'ลูก'→'โลก' (ทั้งคู่ถูก ความหมายต่าง)",
     "  • ข้ามชื่อเฉพาะ ชื่อแบรนด์ และคำทับศัพท์ที่ใช้กันทั่วไป",
     "",
