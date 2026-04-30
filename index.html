@@ -713,6 +713,19 @@ function normThai(s){
     return s.normalize("NFC").replace(/[\u200B-\u200F\uFEFF]/g,"").trim();
   }catch(e){return s.trim();}
 }
+// Deduplicate issues that report the same original→corrected on the same page
+function dedupeIssues(issues){
+  var seen={};
+  var out=[];
+  issues.forEach(function(iss){
+    var key=(iss.page||1)+"|"+(iss.type||"")+"|"+normThai(iss.original)+"|"+normThai(iss.corrected);
+    if(seen[key]) return;
+    seen[key]=true;
+    out.push(iss);
+  });
+  return out;
+}
+
 function filterOcrNoise(issues){
   var thaiRange=/[\u0E00-\u0E7F]/;
   var mathOnly=/^[0-9\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
@@ -802,7 +815,7 @@ async function runProof(){
       var dbIssues=runDBCheck(ocrText,p);
       var mode=document.getElementById("proof-mode").value;
       var dictIssues=(mode==="dict"||mode==="both") ? runDictCheck(ocrText,p) : [];
-      allIssues=allIssues.concat(dbIssues).concat(dictIssues);
+      allIssues=allIssues.concat(dedupeIssues(dbIssues)).concat(dedupeIssues(dictIssues));
 
       // D: document type rules
       var docType=document.getElementById("doc-type").value;
@@ -869,14 +882,14 @@ async function runProof(){
         raw=await callGemini(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
-        allIssues=allIssues.concat(filterOcrNoise(pi));
+        allIssues=allIssues.concat(dedupeIssues(filterOcrNoise(pi)));
         allCorr.push(result.corrected||ocrText);
 
       } else if(model==="typhoon"){
         raw=await callTyphoon(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
-        allIssues=allIssues.concat(filterOcrNoise(pi));
+        allIssues=allIssues.concat(dedupeIssues(filterOcrNoise(pi)));
         allCorr.push(result.corrected||ocrText);
 
       } else if(model==="both"){
@@ -889,12 +902,12 @@ async function runProof(){
         var issA=Array.isArray(resA.issues)?resA.issues:[];
         var issB=Array.isArray(resB.issues)?resB.issues:[];
         var merged=mergeIssues(issA,issB).map(function(i){return Object.assign({},i,{page:p});});
-        allIssues=allIssues.concat(filterOcrNoise(merged));
+        allIssues=allIssues.concat(dedupeIssues(filterOcrNoise(merged)));
         allCorr.push(resA.corrected||resB.corrected||"");
       }
     }
 
-    issues=allIssues;
+    issues=dedupeIssues(allIssues);
     corrText=allCorr.join("\n\n");
 
     document.getElementById("uv").style.display="none";
