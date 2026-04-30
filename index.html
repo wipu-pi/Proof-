@@ -284,7 +284,7 @@ textarea:focus{border-color:var(--tx)}
         <div class="sp"></div>
         <div class="stats" id="pst" style="max-width:280px"></div>
         <button class="btn btn-sm" id="btn-dlpdf" onclick="downloadPdf()" style="background:var(--redbg);color:var(--red);border-color:var(--redbd)">⬇ PDF</button>
-        <button class="btn btn-sm" id="btn-dlxls" onclick="downloadExcel()" style="background:var(--grnbg);color:var(--grn);border-color:var(--grnbd)">⬇ Excel</button>
+        <button class="btn btn-sm" id="btn-dlxls" onclick="downloadExcel()" style="background:var(--grnbg);color:var(--grn);border-color:var(--grnbd)">⬇ CSV</button>
       </div>
       <div class="pwrap">
         <div class="viewer" id="viewer"></div>
@@ -386,7 +386,7 @@ textarea:focus{border-color:var(--tx)}
 </div>
 
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
 var WORKER_URL = "https://proofth.wipu-pic.workers.dev";
 
@@ -395,7 +395,7 @@ let pdfDoc=null, pdfBytes=null;
 let issues=[], corrText="", lastTxt="";
 let curP=1, totP=0, focIdx=-1;
 let curFilter="all";
-let pageWords={};
+let pageWords={}, pageText={};
 var thaiDict = new Set();
 var dictReady = false;
 
@@ -519,6 +519,8 @@ async function runVisionOCR(){
     setOcr(modeLabel+" หน้า "+p+"/"+totP+"...", Math.round((p-1)/totP*100));
     if(mode==="pdfjs"){
       pageWords[p] = await extractPdfJsPage(p);
+      // M-02: also store concatenated text for AI prompts
+      pageText[p] = (pageWords[p]||[]).map(function(w){return w.text;}).join(" ");
       setOcr("PDF.js หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
       continue;
     }
@@ -534,7 +536,7 @@ async function runVisionOCR(){
       // Response: OpenAI-compatible — choices[0].message.content is plain markdown
       const rawText=((data.choices||[])[0]||{}).message
         ? data.choices[0].message.content.trim() : "";
-      pageWords[p]=aksonTextToWords(rawText, p);
+      pageText[p]=rawText; pageWords[p]=aksonTextToWords(rawText, p);
       setOcr("DeepSeek OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
       continue;
     }
@@ -551,7 +553,7 @@ async function runVisionOCR(){
       if(data.error) throw new Error("Typhoon OCR: "+(data.error.message||data.error));
       const rawText=((data.choices||[])[0]||{}).message
         ? data.choices[0].message.content.trim() : "";
-      pageWords[p]=aksonTextToWords(rawText, p);
+      pageText[p]=rawText; pageWords[p]=aksonTextToWords(rawText, p);
       setOcr("Typhoon OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
       continue;
     }
@@ -569,7 +571,7 @@ async function runVisionOCR(){
       const pageData=(data.pages||[])[0]||{};
       const rawText=(pageData.markdown||"").trim();
       const conf=pageData.confidence;
-      pageWords[p]=aksonTextToWords(rawText, p);
+      pageText[p]=rawText; pageWords[p]=aksonTextToWords(rawText, p);
       setOcr("AksonOCR หน้า "+p+"/"+totP+(conf?" ("+conf+"%):":"")+" ✓", Math.round(p/totP*100));
       continue;
     }
@@ -606,6 +608,9 @@ async function runVisionOCR(){
       }
     }
     pageWords[p]=words;
+    // M-02: store canonical text from Vision (preserves Thai layout w/o forced spaces)
+    var fta=(data.responses[0]||{}).fullTextAnnotation;
+    if(fta && fta.text) pageText[p]=fta.text;
     setOcr("Google Vision OCR หน้า "+p+"/"+totP+" ✓", Math.round(p/totP*100));
   }
 }
@@ -638,15 +643,21 @@ function aksonTextToWords(markdown, pageNum){
 }
 
 function ocrToText(pageNum){
+  // Prefer canonical OCR text if available (preserves Thai word boundaries),
+  // otherwise reconstruct from word tokens (joined with spaces).
   if(pageNum){
+    if(pageText[pageNum]) {
+      var t=pageText[pageNum];
+      return t.length>4000 ? t.slice(0,4000)+"..." : t;
+    }
     const words=pageWords[pageNum]||[];
     const text=words.map(function(w){return w.text;}).join(" ");
     return text.length>4000 ? text.slice(0,4000)+"..." : text;
   }
   const parts=[];
   Object.keys(pageWords).forEach(function(p){
-    const words=pageWords[p];
-    parts.push("[Page "+p+"] "+words.map(function(w){return w.text;}).join(" "));
+    var t=pageText[p] || (pageWords[p]||[]).map(function(w){return w.text;}).join(" ");
+    parts.push("[Page "+p+"] "+t);
   });
   const full=parts.join(" | ");
   return full.length>4000 ? full.slice(0,4000)+"..." : full;
@@ -691,25 +702,32 @@ function getConfidenceRule(){
   return "รายงานเฉพาะข้อผิดพลาดที่มั่นใจ "+curPreset.confidence+"%+ เท่านั้น ถ้าไม่แน่ใจให้ข้าม";
 }
 
-// Client-side post-process — removes OCR noise and applies preset thresholds
+// Client-side post-process — type-aware filter with preset thresholds
+// Punctuation/brand/forbidden bypass Thai-character requirement since
+// they often legitimately contain non-Thai characters or are short.
 function filterOcrNoise(issues){
   var thaiRange=/[\u0E00-\u0E7F]/;
   var thaiSpace=/[\u0E00-\u0E7F]\s+[\u0E00-\u0E7F]/;
   var mathOnly=/^[0-9\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
   var thaiOrAscii=/[\u0E00-\u0E7F\u0020-\u007E]/g;
   return issues.filter(function(iss){
+    var type=iss.type||"spelling";
     var orig=(iss.original||"").trim();
     var corr=(iss.corrected||"").trim();
     var expl=(iss.explanation||"").toLowerCase();
-    // Always filter
-    if(orig===corr)              return false;  // same word — AI hallucination
-    if(mathOnly.test(orig))      return false;  // pure numbers/math
-    if(!thaiRange.test(orig))    return false;  // no Thai chars at all
-    if(expl.includes("ติดกัน")) return false;  // OCR space-join artifact
-    if(orig.length<curPreset.minLen) return false;  // too short (preset)
-    // Preset-dependent
-    if(curPreset.blockSplit && thaiSpace.test(orig)) return false;  // OCR split
-    // Garbage ratio check
+    if(!orig) return false;
+    // Always: never flag approved words
+    if(DB.approved.indexOf(orig)>=0) return false;
+    // Always: same-as-corrected = AI hallucination (except forbidden which has no corrected)
+    if(type!=="forbidden" && orig===corr) return false;
+    // Punctuation/brand/forbidden don't need Thai-character filtering — pass through
+    if(type==="punctuation"||type==="brand"||type==="forbidden") return true;
+    // Spelling-specific checks below
+    if(mathOnly.test(orig))      return false;
+    if(!thaiRange.test(orig))    return false;
+    if(expl.includes("ติดกัน")) return false;
+    if(orig.length<curPreset.minLen) return false;
+    if(curPreset.blockSplit && thaiSpace.test(orig)) return false;
     var clean=(orig.match(thaiOrAscii)||[]).length;
     if(orig.length>2 && clean/orig.length<0.6) return false;
     return true;
@@ -757,7 +775,7 @@ async function runProof(){
       "    คำอื่นทั้งหมดใช้ ไ- เท่านั้น",
       "  • ห นำ : หนู หมา หมอ หมาย หนาว หนัก หนัง ฯลฯ — ห นำทำให้เสียงสูง",
       "  • การันต์ : คำทับศัพท์มักมีการันต์ เช่น คอมพิวเตอร์ อินเทอร์เน็ต",
-      "  • คำที่มักสะกดผิดบ่อย: กะทัดรัด→กระทัดรัด, ทะเลาะ(ไม่ใช่ทะเลา), ทรัพย์สิน, กรณี, ปัญหา",
+      "  • คำที่มักสะกดผิดบ่อย: กระทัดรัด→กะทัดรัด, ทะเลาะ(ไม่ใช่ทะเลา), ทรัพย์สิน, กรณี, ปัญหา",
       "  • ตัวสะกด : แม่กก(ก ข ค) กด(ด ต ถ ท) กน(น ณ) กม(ม) กง(ง) กว(ว) กย(ย) กร(ร ล)"
     ].join("\n"):"";
 
@@ -1043,7 +1061,7 @@ function renderIssues(){
   document.getElementById("icnt").textContent=curFilter==="all"?total+" รายการ":shown+" / "+total+" รายการ";
   if(!filtered.length){
     body.innerHTML=issues.length?'<div class="es">ไม่มีข้อผิดพลาดประเภทนี้</div>':'<div class="es">✓ ไม่พบข้อผิดพลาด</div>';
-    renderCorr();return;
+    return;
   }
   const bm={spelling:["bsp","สะกด"],punctuation:["bpu","วรรค"],brand:["bbr","แบรนด์"],forbidden:["bfo","ต้องห้าม"]};
   body.innerHTML=filtered.map(function(iss){
@@ -1055,11 +1073,10 @@ function renderIssues(){
     var pg=iss.page?'<span class="pgp">หน้า '+iss.page+'</span>':"";
     var isBoth=document.getElementById("model-sel").value==="both";
     var badge=isBoth?(iss.confirmed===false?'<span class="conf-warn">⚠ 1 โมเดล</span>':'<span class="conf-ok">✓ 2 โมเดล</span>'):"";
-    return'<div class="ii" id="ii-'+i+'" onclick="focIssue('+i+')"><span class="ibg '+bc+'">'+bl+'</span>'+
+    return'<div class="ii" data-idx="'+i+'" id="ii-'+i+'" onclick="focIssue('+i+')"><span class="ibg '+bc+'">'+bl+'</span>'+
       '<div style="flex:1;min-width:0"><div class="i-orig" style="display:flex;align-items:center;gap:4px">'+esc(iss.original||"")+badge+"</div>"+
       fix+'<div class="i-exp">'+esc(iss.explanation||"")+"</div></div>"+pg+"</div>";
   }).join("");
-  renderCorr();
 }
 
 function renderCorr(){
@@ -1071,7 +1088,8 @@ function renderCorr(){
 
 async function focIssue(idx){
   focIdx=idx;
-  document.querySelectorAll(".ii").forEach(function(el,i){
+  document.querySelectorAll(".ii").forEach(function(el){
+    var i=Number(el.dataset.idx);
     el.classList.toggle("on",i===idx); el.classList.remove("dim");
   });
   const el=document.getElementById("ii-"+idx);
@@ -1084,7 +1102,8 @@ async function focIssue(idx){
 }
 
 function dimOther(page){
-  document.querySelectorAll(".ii").forEach(function(el,i){
+  document.querySelectorAll(".ii").forEach(function(el){
+    var i=Number(el.dataset.idx);
     el.classList.toggle("dim",((issues[i]||{}).page||1)!==page);
   });
 }
@@ -1217,6 +1236,23 @@ function addW(t){
   DB[t].push(w); inp.value=""; renderWC(t); updDB();
 }
 function rmW(t,w){DB[t]=DB[t].filter(function(x){return x!==w;});renderWC(t);updDB();}
+
+// M-05: Persist DB to localStorage so brand/approved/forbidden lists survive refresh
+function saveDB(){
+  try{localStorage.setItem("proofth_db", JSON.stringify(DB));}catch(e){}
+}
+function loadDB(){
+  try{
+    var saved=localStorage.getItem("proofth_db");
+    if(!saved) return;
+    var parsed=JSON.parse(saved);
+    if(parsed && typeof parsed==="object"){
+      ["brand","approved","forbidden"].forEach(function(k){
+        if(Array.isArray(parsed[k])) DB[k]=parsed[k];
+      });
+    }
+  }catch(e){}
+}
 function renderWC(t){
   const el=document.getElementById("wc-"+t);
   if(!DB[t].length){el.innerHTML='<span style="color:var(--tx3);font-size:12px">ยังไม่มีคำ</span>';return;}
@@ -1234,6 +1270,7 @@ function updDB(){
   pills.innerHTML=
     (DB.brand.length?'<span style="font-size:11px;background:var(--blubg);color:var(--blu);padding:1px 7px;border-radius:99px;border:1px solid var(--blubd)">'+DB.brand.length+' แบรนด์</span>':"")+
     (DB.forbidden.length?'<span style="font-size:11px;background:var(--redbg);color:var(--red);padding:1px 7px;border-radius:99px;border:1px solid var(--redbd)">'+DB.forbidden.length+' ต้องห้าม</span>':"");
+  saveDB();  // M-05: persist on every change
 }
 
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
@@ -1398,11 +1435,14 @@ function downloadExcel(){
       modelNote
     ]);
   });
-  var csv="﻿"+rows.map(function(r){
-    return r.map(function(cell){
-      var s=String(cell).replace(/"/g,'""');
-      return'"'+s+'"';
-    }).join(",");
+  function safeCsvCell(v){
+    var s=String(v==null?"":v);
+    // Prefix dangerous formula triggers with apostrophe
+    if(/^[=+\-@\t\r]/.test(s)) s="'"+s;
+    return '"'+s.replace(/"/g,'""')+'"';
+  }
+  var csv="\uFEFF"+rows.map(function(r){
+    return r.map(safeCsvCell).join(",");
   }).join("\n");
   var blob=new Blob([csv],{type:"text/csv;charset=utf-8"});
   var url=URL.createObjectURL(blob);
@@ -1465,6 +1505,7 @@ async function loadThaiDict(){
 }
 
 loadThaiDict();
+loadDB();  // M-05: restore brand/approved/forbidden lists from previous session
 ["brand","approved","forbidden"].forEach(function(t){renderWC(t);});
 updDB();
 </script>
