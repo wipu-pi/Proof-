@@ -702,34 +702,30 @@ function getConfidenceRule(){
   return "รายงานเฉพาะข้อผิดพลาดที่มั่นใจ "+curPreset.confidence+"%+ เท่านั้น ถ้าไม่แน่ใจให้ข้าม";
 }
 
-// Client-side post-process — type-aware filter with preset thresholds
-// Punctuation/brand/forbidden bypass Thai-character requirement since
-// they often legitimately contain non-Thai characters or are short.
+// Client-side post-process — type-aware filter
+// Philosophy: filter out clear noise, but trust the AI for actual content judgment.
+// Better to show too many than miss real errors.
 function filterOcrNoise(issues){
   var thaiRange=/[\u0E00-\u0E7F]/;
-  var thaiSpace=/[\u0E00-\u0E7F]\s+[\u0E00-\u0E7F]/;
   var mathOnly=/^[0-9\.\,\+\-\*\/\=\(\)\[\]\^\u0394\u03A3\u03C0\s]+$/;
-  var thaiOrAscii=/[\u0E00-\u0E7F\u0020-\u007E]/g;
   return issues.filter(function(iss){
     var type=iss.type||"spelling";
     var orig=(iss.original||"").trim();
     var corr=(iss.corrected||"").trim();
-    var expl=(iss.explanation||"").toLowerCase();
     if(!orig) return false;
-    // Always: never flag approved words
+    // Never flag approved words
     if(DB.approved.indexOf(orig)>=0) return false;
-    // Always: same-as-corrected = AI hallucination (except forbidden which has no corrected)
+    // Same-as-corrected is always wrong (AI hallucination), except forbidden
     if(type!=="forbidden" && orig===corr) return false;
-    // Punctuation/brand/forbidden don't need Thai-character filtering — pass through
+    // Punctuation/brand/forbidden don't need Thai-character filtering
     if(type==="punctuation"||type==="brand"||type==="forbidden") return true;
-    // Spelling-specific checks below
-    if(mathOnly.test(orig))      return false;
-    if(!thaiRange.test(orig))    return false;
-    if(expl.includes("ติดกัน")) return false;
-    if(orig.length<curPreset.minLen) return false;
-    if(curPreset.blockSplit && thaiSpace.test(orig)) return false;
-    var clean=(orig.match(thaiOrAscii)||[]).length;
-    if(orig.length>2 && clean/orig.length<0.6) return false;
+    // Spelling: drop pure math/numbers and clearly empty content
+    if(mathOnly.test(orig)) return false;
+    // Spelling must contain at least one Thai character
+    if(!thaiRange.test(orig)) return false;
+    // Single character is too short to be meaningful
+    if(orig.length<2) return false;
+    // Trust the AI for everything else — let user decide
     return true;
   });
 }
@@ -826,18 +822,19 @@ async function runProof(){
       // Preset-driven persona — AI responds to framing more than numbered rules
       var presetPersona={
         thorough:[
-          "คุณเป็น proofreader ที่ตรวจทุกอย่างที่น่าสงสัย",
-          "หน้าที่ของคุณคือค้นหาข้อผิดพลาดให้ครบถ้วนที่สุด แม้ไม่แน่ใจ 100% ก็ให้รายงาน",
-          "ดีกว่าเจอมากไปกว่าพลาด — ผู้ใช้จะตัดสินใจเองว่าอันไหนสำคัญ"
+          "คุณเป็น proofreader ตรวจหาข้อผิดพลาดทุกประเภทอย่างละเอียด",
+          "รายงานทุกอย่างที่ดูผิด รวมถึงคำที่ไม่สมบูรณ์ คำสะกดผิด และวรรคตอน",
+          "ผู้ใช้จะตัดสินใจเองว่าอันไหนสำคัญ — ดีกว่าเจอมากกว่าพลาด"
         ].join("\n"),
         balanced:[
-          "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ ระดับเดียวกับนักภาษาศาสตร์ราชบัณฑิตยสภา",
-          "รายงานเฉพาะข้อผิดพลาดที่มั่นใจ — ข้ามกรณีที่อาจเป็นชื่อเฉพาะหรือคำทับศัพท์ที่ยอมรับได้"
+          "คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ",
+          "รายงานข้อผิดพลาดที่ชัดเจน รวมถึงคำที่ไม่สมบูรณ์ (เช่น ขาดพยัญชนะท้าย) และคำสะกดผิดทั่วไป",
+          "ใส่ใจกับความครบถ้วน — อย่ากลัวที่จะรายงานสิ่งที่เห็นชัดว่าผิด"
         ].join("\n"),
         precise:[
-          "คุณเป็น senior editor ที่รายงานเฉพาะข้อผิดพลาดที่ชัดเจน 100% เท่านั้น",
-          "ถ้ามีความสงสัยแม้เพียงเล็กน้อยว่าคำนั้นอาจถูกต้องในบริบทนั้น ให้ข้ามทั้งหมด",
-          "ผลลัพธ์ต้องมีความแม่นยำสูงสุด — น้อยแต่มาก"
+          "คุณเป็น senior editor รายงานเฉพาะข้อผิดพลาดที่ชัดเจน",
+          "เน้นคำที่ผิดอย่างชัดเจน เช่น คำไม่สมบูรณ์ คำสะกดผิดที่พจนานุกรมระบุชัด",
+          "ข้ามชื่อเฉพาะ ชื่อแบรนด์ และคำทับศัพท์ที่ยอมรับได้"
         ].join("\n")
       };
       var presetKey=Object.keys(PRESETS).find(function(k){return PRESETS[k]===curPreset;})||"balanced";
@@ -865,9 +862,17 @@ async function runProof(){
         "== กฎสำคัญ ==",
         "1. original ต้องเป็นคำที่สั้นที่สุดที่ปรากฏในข้อความ OCR ทุกตัวอักษร ห้ามใส่คำบริบทรอบข้าง",
         "2. ข้ามคำในรายการอนุมัติ / ข้ามคำทับศัพท์ที่สะกดถูกแล้ว",
-        "3. ข้าม OCR noise: สัญลักษณ์แปลก, ตัวเลขติดอักษรไทย, สั้นกว่า "+curPreset.minLen+" ตัวอักษร",
-        "4. ห้ามรายงานคำที่ OCR แยกด้วย space เช่น 'เครน ยก' — นี่คือ OCR artifact ไม่ใช่ผิด",
-        "5. ถ้าอาจเป็นชื่อเฉพาะหรือชื่อคน ให้ข้าม",
+        "3. รายงานคำที่ไม่สมบูรณ์ทุกครั้ง เช่น:",
+        "   • 'กล่อ' (ขาด ง) → 'กล่อง'",
+        "   • 'เคร' (ขาด น) → 'เครน'",
+        "   • 'แสด' (ขาด ง) → 'แสดง'",
+        "   • คำที่ดูเหมือนถูกตัดท้าย หรือขาดสระ/วรรณยุกต์ที่จำเป็น",
+        "4. ห้ามแก้คำที่สะกดถูกแล้วเป็นคำอื่น เช่น 'ลูก'→'โลก' หรือ 'เรียน'→'เลียน' (ทั้งคู่ถูก แต่ความหมายต่าง)",
+        "   ถ้า original เป็นคำไทยที่สะกดถูกในพจนานุกรม ห้ามรายงาน",
+        "5. ข้ามสูตรคณิตศาสตร์ เช่น 'F=mg', 'kg', 'm/s²', '441 J', '√10'",
+        "6. ข้าม OCR noise: สัญลักษณ์แปลก, ตัวเลขติดอักษรไทย",
+        "7. ห้ามรายงานคำที่ OCR แยกด้วย space เช่น 'เครน ยก' (นี่คือ OCR artifact)",
+        "8. ถ้าอาจเป็นชื่อเฉพาะ ชื่อคน ชื่อแบรนด์ หรือคำทับศัพท์ที่ใช้กันทั่วไป ให้ข้าม",
         "",
         "== รูปแบบการตอบ ==",
         'ตอบ JSON ล้วนๆ เท่านั้น ห้าม markdown:',
@@ -1138,9 +1143,9 @@ async function runTxt(){
     general:""
   }[docType]||"";
   var presetPersonaTxt={
-    thorough:"คุณเป็น proofreader ที่ตรวจทุกอย่างที่น่าสงสัย รายงานแม้ไม่แน่ใจ 100% — ดีกว่าเจอมากไปกว่าพลาด",
-    balanced:"คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ รายงานเฉพาะที่มั่นใจ ข้ามกรณีที่คลุมเครือ",
-    precise:"คุณเป็น senior editor รายงานเฉพาะข้อผิดพลาดที่ชัดเจน 100% เท่านั้น ถ้าสงสัยแม้เล็กน้อยให้ข้าม"
+    thorough:"คุณเป็น proofreader ตรวจหาข้อผิดพลาดทุกประเภทอย่างละเอียด รายงานคำไม่สมบูรณ์ คำสะกดผิด วรรคตอน — ดีกว่าเจอมากกว่าพลาด",
+    balanced:"คุณเป็นผู้เชี่ยวชาญตรวจแก้ภาษาไทยมืออาชีพ รายงานคำที่ผิดชัดเจน รวมคำไม่สมบูรณ์ — ใส่ใจความครบถ้วน",
+    precise:"คุณเป็น senior editor รายงานข้อผิดพลาดที่ชัดเจน เช่น คำไม่สมบูรณ์และสะกดผิดในพจนานุกรม — ข้ามชื่อเฉพาะและทับศัพท์"
   };
   var presetKeyTxt=Object.keys(PRESETS).find(function(k){return PRESETS[k]===curPreset;})||"balanced";
   const promptLines=[
@@ -1162,7 +1167,11 @@ async function runTxt(){
     "  • ไม่ใส่ space ก่อนเครื่องหมายวรรคตอน",
     "  • ไปยาลน้อย (ฯ) ใช้ย่อคำ เช่น กรุงเทพฯ",
     "",
-    "กฎสำคัญ: original ต้องสั้นที่สุด / ข้ามชื่อเฉพาะ / ข้ามคำทับศัพท์ที่ถูก",
+    "กฎสำคัญ:",
+    "  • original ต้องเป็นคำที่สั้นที่สุด — ห้ามใส่บริบทรอบข้าง",
+    "  • รายงานคำไม่สมบูรณ์ทุกครั้ง เช่น 'กล่อ'→'กล่อง', 'เคร'→'เครน'",
+    "  • ห้ามแก้คำที่สะกดถูกแล้วเป็นคำอื่น เช่น 'ลูก'→'โลก' (ทั้งคู่ถูก ความหมายต่าง)",
+    "  • ข้ามชื่อเฉพาะ ชื่อแบรนด์ และคำทับศัพท์ที่ใช้กันทั่วไป",
     "",
     "ข้อความ:",
     text,
