@@ -713,12 +713,22 @@ function normThai(s){
     return s.normalize("NFC").replace(/[\u200B-\u200F\uFEFF]/g,"").trim();
   }catch(e){return s.trim();}
 }
-// Deduplicate issues that report the same original→corrected on the same page
+// Deduplicate issues that report the same original→corrected on the same page.
+// Uses a normalized key that ignores whitespace, case, and Unicode form variations.
 function dedupeIssues(issues){
   var seen={};
   var out=[];
+  function dedupeKey(s){
+    if(!s) return "";
+    try{
+      // NFC normalize, lowercase, strip all whitespace and zero-width chars
+      return s.normalize("NFC")
+              .toLowerCase()
+              .replace(/[\u200B-\u200F\uFEFF\s]/g,"");
+    }catch(e){return s.replace(/\s/g,"").toLowerCase();}
+  }
   issues.forEach(function(iss){
-    var key=(iss.page||1)+"|"+(iss.type||"")+"|"+normThai(iss.original)+"|"+normThai(iss.corrected);
+    var key=(iss.page||1)+"|"+(iss.type||"")+"|"+dedupeKey(iss.original)+"|"+dedupeKey(iss.corrected);
     if(seen[key]) return;
     seen[key]=true;
     out.push(iss);
@@ -917,6 +927,18 @@ async function runProof(){
     document.querySelectorAll(".ftag").forEach(function(t){t.classList.remove("on");});
     var allTag=document.querySelector(".ftag-all");if(allTag)allTag.classList.add("on");
     await renderPage(curP);
+    // Debug: log first 5 issues so we can see if originals are actually identical
+    if(issues.length>0){
+      console.log("First issues (raw bytes for debug):", issues.slice(0,5).map(function(i){
+        return {
+          page: i.page,
+          type: i.type,
+          original: i.original,
+          original_codes: Array.from(i.original||"").map(function(c){return c.charCodeAt(0).toString(16);}).join(" "),
+          corrected: i.corrected
+        };
+      }));
+    }
     renderStats(); renderIssues();
   }catch(err){
     setGo("❌ "+err.message);
