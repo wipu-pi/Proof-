@@ -251,7 +251,8 @@ textarea:focus{border-color:var(--tx)}
               </select>
               <div class="lbl" style="margin-top:8px">AI Model</div>
               <select class="msel" id="model-sel">
-                <option value="gemini">🤖 Gemini 3.1 Flash-Lite</option>
+                <option value="gemini">🤖 Gemini 3.1 Flash-Lite (เร็ว ประหยัด)</option>
+                <option value="gemini-pro">🎯 Gemini 3.5 Flash (แม่นยำที่สุด)</option>
                 <option value="typhoon">🇹🇭 Typhoon v2 (Thai)</option>
                 <option value="both">⚡ Gemini + Typhoon (Best)</option>
               </select>
@@ -674,6 +675,19 @@ async function callGemini(prompt){
   return (data.candidates||[]).map(function(cd){return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");}).join("");
 }
 
+// Gemini 3.5 Flash — premium model, 6x more expensive but frontier-level accuracy
+// Uses higher max_tokens since 3.5 Flash supports 65,536 output tokens
+async function callGeminiPro(prompt){
+  var res=await fetch(WORKER_URL+"/api/gemini-pro",{
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8192}})
+  });
+  if(!res.ok){var t=await res.text();throw new Error("Gemini Pro "+res.status+": "+t.slice(0,150));}
+  var data=await res.json();
+  if(data.error) throw new Error("Gemini Pro: "+data.error.message);
+  return (data.candidates||[]).map(function(cd){return ((cd.content||{}).parts||[]).map(function(p){return p.text||"";}).join("");}).join("");
+}
+
 async function callTyphoon(prompt){
   var res=await fetch(WORKER_URL+"/api/typhoon",{
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -890,6 +904,13 @@ async function runProof(){
 
       if(model==="gemini"){
         raw=await callGemini(prompt);
+        var result=parseJ(raw);
+        var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
+        allIssues=allIssues.concat(dedupeIssues(filterOcrNoise(pi)));
+        allCorr.push(result.corrected||ocrText);
+
+      } else if(model==="gemini-pro"){
+        raw=await callGeminiPro(prompt);
         var result=parseJ(raw);
         var pi=(Array.isArray(result.issues)?result.issues:[]).map(function(i){return Object.assign({},i,{confirmed:true,page:p});});
         allIssues=allIssues.concat(dedupeIssues(filterOcrNoise(pi)));
